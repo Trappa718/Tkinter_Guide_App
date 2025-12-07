@@ -1,0 +1,246 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import pygame
+import os
+import time
+
+class AudioPlayer:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Аудио-плеер")
+        self.root.geometry("500x400")
+        
+        # Инициализация pygame mixer
+        pygame.mixer.init()
+        
+        self.current_file = None
+        self.playing = False
+        self.paused = False
+        self.playlist = []
+        self.current_index = 0
+        
+        self.create_widgets()
+        self.update_controls()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Заголовок
+        title_label = tk.Label(self.root, text="Аудио-плеер", 
+                              font=("Arial", 16, "bold"))
+        title_label.pack(pady=10)
+        
+        # Отображение текущего файла
+        self.file_label = tk.Label(self.root, text="Файл не выбран", 
+                                  font=("Arial", 10), wraplength=400)
+        self.file_label.pack(pady=5)
+        
+        # Прогресс-бар
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = tk.Scale(self.root, from_=0, to=100, 
+                                    orient=tk.HORIZONTAL, variable=self.progress_var,
+                                    length=400, showvalue=False)
+        self.progress_bar.pack(pady=10)
+        
+        # Время
+        self.time_label = tk.Label(self.root, text="00:00 / 00:00", 
+                                  font=("Arial", 10))
+        self.time_label.pack()
+        
+        # Панель управления
+        control_frame = tk.Frame(self.root)
+        control_frame.pack(pady=20)
+        
+        self.open_btn = tk.Button(control_frame, text="Открыть", 
+                                 command=self.open_file, font=("Arial", 10))
+        self.open_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.play_btn = tk.Button(control_frame, text="Воспроизвести", 
+                                 command=self.toggle_play, font=("Arial", 10))
+        self.play_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.pause_btn = tk.Button(control_frame, text="Пауза", 
+                                  command=self.toggle_pause, font=("Arial", 10))
+        self.pause_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.stop_btn = tk.Button(control_frame, text="Стоп", 
+                                 command=self.stop, font=("Arial", 10))
+        self.stop_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Регулятор громкости
+        volume_frame = tk.Frame(self.root)
+        volume_frame.pack(pady=10)
+        
+        tk.Label(volume_frame, text="Громкость:", font=("Arial", 10)).pack(side=tk.LEFT)
+        self.volume_var = tk.IntVar(value=50)
+        volume_scale = tk.Scale(volume_frame, from_=0, to=100, 
+                               orient=tk.HORIZONTAL, variable=self.volume_var,
+                               command=self.set_volume, length=150)
+        volume_scale.pack(side=tk.LEFT, padx=10)
+        
+        # Плейлист
+        playlist_frame = tk.Frame(self.root)
+        playlist_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        tk.Label(playlist_frame, text="Плейлист", font=("Arial", 12, "bold")).pack()
+        
+        # Список плейлиста
+        self.playlist_listbox = tk.Listbox(playlist_frame, height=6)
+        self.playlist_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.playlist_listbox.bind("<Double-1>", self.play_selected)
+        
+        # Кнопки управления плейлистом
+        playlist_controls = tk.Frame(playlist_frame)
+        playlist_controls.pack()
+        
+        tk.Button(playlist_controls, text="Добавить файлы", 
+                 command=self.add_to_playlist).pack(side=tk.LEFT, padx=5)
+        tk.Button(playlist_controls, text="Удалить", 
+                 command=self.remove_from_playlist).pack(side=tk.LEFT, padx=5)
+        tk.Button(playlist_controls, text="Следующий", 
+                 command=self.next_track).pack(side=tk.LEFT, padx=5)
+        tk.Button(playlist_controls, text="Предыдущий", 
+                 command=self.previous_track).pack(side=tk.LEFT, padx=5)
+        
+        # Запуск обновления прогресса
+        self.update_progress()
+    
+    def open_file(self):
+        """Открытие аудио файла"""
+        filename = filedialog.askopenfilename(
+            filetypes=[
+                ("Аудио файлы", "*.mp3 *.wav *.ogg"),
+                ("MP3 files", "*.mp3"),
+                ("WAV files", "*.wav"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if filename:
+            self.load_file(filename)
+    
+    def load_file(self, filename):
+        """Загрузка файла"""
+        try:
+            pygame.mixer.music.load(filename)
+            self.current_file = filename
+            self.file_label.config(text=os.path.basename(filename))
+            self.playing = False
+            self.paused = False
+            self.update_controls()
+            
+        except pygame.error as e:
+            messagebox.showerror("Ошибка", f"Не удалось загрузить файл: {str(e)}")
+    
+    def toggle_play(self):
+        """Воспроизведение/пауза"""
+        if self.current_file:
+            if not self.playing and not self.paused:
+                pygame.mixer.music.play()
+                self.playing = True
+                self.paused = False
+            elif self.paused:
+                pygame.mixer.music.unpause()
+                self.playing = True
+                self.paused = False
+            else:
+                pygame.mixer.music.pause()
+                self.playing = False
+                self.paused = True
+            
+            self.update_controls()
+    
+    def toggle_pause(self):
+        """Переключение паузы"""
+        if self.playing:
+            pygame.mixer.music.pause()
+            self.playing = False
+            self.paused = True
+        elif self.paused:
+            pygame.mixer.music.unpause()
+            self.playing = True
+            self.paused = False
+        
+        self.update_controls()
+    
+    def stop(self):
+        """Остановка воспроизведения"""
+        pygame.mixer.music.stop()
+        self.playing = False
+        self.paused = False
+        self.progress_var.set(0)
+        self.update_controls()
+    
+    def set_volume(self, value):
+        """Установка громкости"""
+        volume = int(value) / 100
+        pygame.mixer.music.set_volume(volume)
+    
+    def update_controls(self):
+        """Обновление состояния кнопок"""
+        if self.playing:
+            self.play_btn.config(text="Пауза")
+        else:
+            self.play_btn.config(text="Воспроизвести")
+        
+        self.pause_btn.config(state=tk.NORMAL if self.playing or self.paused else tk.DISABLED)
+        self.stop_btn.config(state=tk.NORMAL if self.playing or self.paused else tk.DISABLED)
+    
+    def update_progress(self):
+        """Обновление прогресса воспроизведения"""
+        if self.playing and pygame.mixer.music.get_busy():
+            # В реальном приложении здесь нужно получать позицию трека
+            # Для демонстрации используем простой прогресс
+            pass
+        
+        self.root.after(100, self.update_progress)
+    
+    def add_to_playlist(self):
+        """Добавление файлов в плейлист"""
+        filenames = filedialog.askopenfilenames(
+            filetypes=[
+                ("Аудио файлы", "*.mp3 *.wav *.ogg"),
+                ("MP3 files", "*.mp3"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        for filename in filenames:
+            if filename not in self.playlist:
+                self.playlist.append(filename)
+                self.playlist_listbox.insert(tk.END, os.path.basename(filename))
+    
+    def remove_from_playlist(self):
+        """Удаление из плейлиста"""
+        selected = self.playlist_listbox.curselection()
+        if selected:
+            index = selected[0]
+            self.playlist.pop(index)
+            self.playlist_listbox.delete(index)
+    
+    def play_selected(self, event):
+        """Воспроизведение выбранного трека"""
+        selected = self.playlist_listbox.curselection()
+        if selected:
+            self.current_index = selected[0]
+            self.load_file(self.playlist[self.current_index])
+            self.toggle_play()
+    
+    def next_track(self):
+        """Следующий трек"""
+        if self.playlist:
+            self.current_index = (self.current_index + 1) % len(self.playlist)
+            self.load_file(self.playlist[self.current_index])
+            if self.playing:
+                self.toggle_play()
+    
+    def previous_track(self):
+        """Предыдущий трек"""
+        if self.playlist:
+            self.current_index = (self.current_index - 1) % len(self.playlist)
+            self.load_file(self.playlist[self.current_index])
+            if self.playing:
+                self.toggle_play()
+
+root = tk.Tk()
+player = AudioPlayer(root)
+root.mainloop()

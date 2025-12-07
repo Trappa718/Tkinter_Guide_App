@@ -1,0 +1,352 @@
+import tkinter as tk
+from tkinter import scrolledtext, simpledialog
+import socket
+import threading
+import time
+from datetime import datetime
+
+class ChatApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Чат-приложение")
+        self.root.geometry("700x500")
+        
+        # Настройки сети
+        self.host = 'localhost'
+        self.port = 12345
+        self.username = "User"
+        self.is_server = False
+        self.connected = False
+        
+        # Сокет
+        self.socket = None
+        self.server_socket = None
+        
+        self.create_widgets()
+        self.setup_network()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Главный фрейм
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Верхняя панель подключения
+        connection_frame = tk.Frame(main_frame)
+        connection_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Настройки подключения
+        settings_frame = tk.Frame(connection_frame)
+        settings_frame.pack(fill=tk.X)
+        
+        tk.Label(settings_frame, text="Хост:").pack(side=tk.LEFT)
+        self.host_var = tk.StringVar(value=self.host)
+        host_entry = tk.Entry(settings_frame, textvariable=self.host_var, width=15)
+        host_entry.pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(settings_frame, text="Порт:").pack(side=tk.LEFT)
+        self.port_var = tk.IntVar(value=self.port)
+        port_entry = tk.Entry(settings_frame, textvariable=self.port_var, width=8)
+        port_entry.pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(settings_frame, text="Имя:").pack(side=tk.LEFT)
+        self.name_var = tk.StringVar(value=self.username)
+        name_entry = tk.Entry(settings_frame, textvariable=self.name_var, width=15)
+        name_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Кнопки подключения
+        btn_frame = tk.Frame(connection_frame)
+        btn_frame.pack(fill=tk.X, pady=5)
+        
+        self.server_btn = tk.Button(btn_frame, text="Запустить сервер", 
+                                   command=self.start_server)
+        self.server_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.connect_btn = tk.Button(btn_frame, text="Подключиться", 
+                                    command=self.connect_to_server)
+        self.connect_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.disconnect_btn = tk.Button(btn_frame, text="Отключиться", 
+                                       command=self.disconnect, state=tk.DISABLED)
+        self.disconnect_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Статус
+        self.status_var = tk.StringVar(value="Не подключено")
+        status_label = tk.Label(connection_frame, textvariable=self.status_var, 
+                               fg="red", font=("Arial", 10))
+        status_label.pack(anchor=tk.W)
+        
+        # Область чата
+        chat_frame = tk.Frame(main_frame)
+        chat_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Список пользователей
+        users_frame = tk.Frame(chat_frame, width=150)
+        users_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        users_frame.pack_propagate(False)
+        
+        tk.Label(users_frame, text="Участники", font=("Arial", 12, "bold")).pack()
+        self.users_listbox = tk.Listbox(users_frame)
+        self.users_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Область сообщений
+        messages_frame = tk.Frame(chat_frame)
+        messages_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        # История сообщений
+        self.messages_text = scrolledtext.ScrolledText(messages_frame, wrap=tk.WORD, 
+                                                      state=tk.DISABLED)
+        self.messages_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Панель ввода
+        input_frame = tk.Frame(messages_frame)
+        input_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        self.message_var = tk.StringVar()
+        self.message_entry = tk.Entry(input_frame, textvariable=self.message_var)
+        self.message_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.message_entry.bind("<Return>", self.send_message)
+        
+        self.send_btn = tk.Button(input_frame, text="Отправить", 
+                                 command=self.send_message, state=tk.DISABLED)
+        self.send_btn.pack(side=tk.RIGHT, padx=(5, 0))
+    
+    def setup_network(self):
+        """Настройка сетевых параметров"""
+        self.clients = []
+        self.users = []
+    
+    def start_server(self):
+        """Запуск сервера"""
+        if self.connected:
+            return
+        
+        self.host = self.host_var.get()
+        self.port = self.port_var.get()
+        self.username = self.name_var.get()
+        
+        try:
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(5)
+            
+            self.is_server = True
+            self.connected = True
+            
+            self.update_ui_connected()
+            self.add_message("Система", f"Сервер запущен на {self.host}:{self.port}")
+            
+            # Запускаем поток для принятия подключений
+            server_thread = threading.Thread(target=self.accept_connections, daemon=True)
+            server_thread.start()
+            
+        except Exception as e:
+            self.add_message("Ошибка", f"Не удалось запустить сервер: {str(e)}")
+    
+    def accept_connections(self):
+        """Принятие входящих подключений (для сервера)"""
+        while self.connected and self.is_server:
+            try:
+                client_socket, address = self.server_socket.accept()
+                self.clients.append(client_socket)
+                
+                # Запускаем поток для клиента
+                client_thread = threading.Thread(target=self.handle_client, 
+                                               args=(client_socket,), daemon=True)
+                client_thread.start()
+                
+                self.add_message("Система", f"Подключился клиент {address}")
+                
+            except Exception as e:
+                if self.connected:
+                    self.add_message("Ошибка", f"Ошибка принятия подключения: {str(e)}")
+    
+    def handle_client(self, client_socket):
+        """Обработка клиентского подключения (для сервера)"""
+        try:
+            while self.connected:
+                data = client_socket.recv(1024).decode('utf-8')
+                if not data:
+                    break
+                
+                # Обработка сообщения
+                self.broadcast_message(data, client_socket)
+                
+        except Exception as e:
+            pass
+        finally:
+            self.clients.remove(client_socket)
+            client_socket.close()
+    
+    def broadcast_message(self, message, sender_socket=None):
+        """Рассылка сообщения всем клиентам (для сервера)"""
+        for client in self.clients:
+            if client != sender_socket:
+                try:
+                    client.send(message.encode('utf-8'))
+                except:
+                    self.clients.remove(client)
+    
+    def connect_to_server(self):
+        """Подключение к серверу"""
+        if self.connected:
+            return
+        
+        self.host = self.host_var.get()
+        self.port = self.port_var.get()
+        self.username = self.name_var.get()
+        
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.host, self.port))
+            
+            self.connected = True
+            self.is_server = False
+            
+            self.update_ui_connected()
+            self.add_message("Система", f"Подключено к {self.host}:{self.port}")
+            
+            # Запускаем поток для приема сообщений
+            receive_thread = threading.Thread(target=self.receive_messages, daemon=True)
+            receive_thread.start()
+            
+            # Отправляем приветственное сообщение
+            self.send_system_message(f"{self.username} присоединился к чату")
+            
+        except Exception as e:
+            self.add_message("Ошибка", f"Не удалось подключиться: {str(e)}")
+    
+    def receive_messages(self):
+        """Прием сообщений от сервера"""
+        while self.connected:
+            try:
+                data = self.socket.recv(1024).decode('utf-8')
+                if not data:
+                    break
+                
+                # Отображаем сообщение
+                self.display_received_message(data)
+                
+            except Exception as e:
+                if self.connected:
+                    self.add_message("Ошибка", f"Ошибка приема: {str(e)}")
+                break
+        
+        if self.connected:
+            self.disconnect()
+    
+    def display_received_message(self, message):
+        """Отображение полученного сообщения"""
+        # Парсим сообщение (формат: "username: message")
+        if ":" in message:
+            parts = message.split(":", 1)
+            username = parts[0].strip()
+            msg_text = parts[1].strip()
+            self.add_message(username, msg_text)
+        else:
+            self.add_message("Система", message)
+    
+    def send_message(self, event=None):
+        """Отправка сообщения"""
+        if not self.connected:
+            return
+        
+        message = self.message_var.get().strip()
+        if not message:
+            return
+        
+        full_message = f"{self.username}: {message}"
+        
+        if self.is_server:
+            # Сервер рассылает всем клиентам
+            self.broadcast_message(full_message)
+            self.add_message(self.username, message)
+        else:
+            # Клиент отправляет серверу
+            try:
+                self.socket.send(full_message.encode('utf-8'))
+                self.add_message(self.username, message)
+            except Exception as e:
+                self.add_message("Ошибка", f"Не удалось отправить сообщение: {str(e)}")
+        
+        self.message_var.set("")
+    
+    def send_system_message(self, message):
+        """Отправка системного сообщения"""
+        if self.is_server:
+            self.broadcast_message(f"Система: {message}")
+        else:
+            try:
+                self.socket.send(f"Система: {message}".encode('utf-8'))
+            except:
+                pass
+    
+    def disconnect(self):
+        """Отключение от чата"""
+        self.connected = False
+        
+        if self.is_server:
+            # Сервер отключает всех клиентов
+            for client in self.clients:
+                try:
+                    client.close()
+                except:
+                    pass
+            self.clients.clear()
+            
+            if self.server_socket:
+                self.server_socket.close()
+                self.server_socket = None
+        else:
+            # Клиент отключается от сервера
+            if self.socket:
+                self.socket.close()
+                self.socket = None
+        
+        self.update_ui_disconnected()
+        self.add_message("Система", "Отключено от чата")
+    
+    def add_message(self, username, message):
+        """Добавление сообщения в историю"""
+        timestamp = datetime.now().strftime("%H:%M")
+        
+        self.messages_text.config(state=tk.NORMAL)
+        
+        if username == "Система":
+            self.messages_text.insert(tk.END, f"[{timestamp}] {message}\n", "system")
+        elif username == self.username:
+            self.messages_text.insert(tk.END, f"[{timestamp}] Вы: {message}\n", "self")
+        else:
+            self.messages_text.insert(tk.END, f"[{timestamp}] {username}: {message}\n", "other")
+        
+        self.messages_text.config(state=tk.DISABLED)
+        self.messages_text.see(tk.END)
+    
+    def update_ui_connected(self):
+        """Обновление UI при подключении"""
+        self.status_var.set("Подключено")
+        self.status_var.set("Подключено")
+        
+        self.server_btn.config(state=tk.DISABLED)
+        self.connect_btn.config(state=tk.DISABLED)
+        self.disconnect_btn.config(state=tk.NORMAL)
+        self.send_btn.config(state=tk.NORMAL)
+        
+        # Настраиваем цвета для разных типов сообщений
+        self.messages_text.tag_configure("system", foreground="gray")
+        self.messages_text.tag_configure("self", foreground="blue")
+        self.messages_text.tag_configure("other", foreground="black")
+    
+    def update_ui_disconnected(self):
+        """Обновление UI при отключении"""
+        self.status_var.set("Не подключено")
+        
+        self.server_btn.config(state=tk.NORMAL)
+        self.connect_btn.config(state=tk.NORMAL)
+        self.disconnect_btn.config(state=tk.DISABLED)
+        self.send_btn.config(state=tk.DISABLED)
+
+root = tk.Tk()
+app = ChatApp(root)
+root.mainloop()

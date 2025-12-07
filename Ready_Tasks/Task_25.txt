@@ -1,0 +1,265 @@
+import tkinter as tk
+from tkinter import ttk
+import psutil
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import threading
+import time
+
+class SystemMonitor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Монитор системы")
+        self.root.geometry("1000x700")
+        
+        self.monitoring = False
+        self.update_interval = 1  # секунды
+        self.history_length = 60  # точек на графике
+        
+        # Данные для графиков
+        self.cpu_data = [0] * self.history_length
+        self.memory_data = [0] * self.history_length
+        self.disk_data = [0] * self.history_length
+        self.time_points = list(range(-self.history_length, 0))
+        
+        self.create_widgets()
+        self.start_monitoring()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Главный фрейм
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Верхняя панель с общей информацией
+        info_frame = tk.Frame(main_frame)
+        info_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Информация о системе
+        sys_info = self.get_system_info()
+        
+        info_text = f"Система: {sys_info['system']} | " \
+                   f"Процессор: {sys_info['cpu']} | " \
+                   f"Память: {sys_info['memory']} | " \
+                   f"Диск: {sys_info['disk']}"
+        
+        tk.Label(info_frame, text=info_text, font=("Arial", 10)).pack(anchor=tk.W)
+        
+        # Настройки мониторинга
+        settings_frame = tk.Frame(main_frame)
+        settings_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(settings_frame, text="Интервал обновления (сек):").pack(side=tk.LEFT)
+        self.interval_var = tk.DoubleVar(value=self.update_interval)
+        interval_scale = tk.Scale(settings_frame, from_=0.5, to=5, resolution=0.5,
+                                 orient=tk.HORIZONTAL, variable=self.interval_var,
+                                 length=150, showvalue=True)
+        interval_scale.pack(side=tk.LEFT, padx=10)
+        
+        tk.Button(settings_frame, text="Обновить сейчас", 
+                 command=self.force_update).pack(side=tk.LEFT, padx=10)
+        
+        # Графики
+        self.create_charts(main_frame)
+        
+        # Процессы
+        self.create_processes_tab(main_frame)
+    
+    def get_system_info(self):
+        """Получение общей информации о системе"""
+        try:
+            # Информация о системе
+            system = f"{psutil.sysname()} {psutil.release()}"
+            
+            # Информация о процессоре
+            cpu_info = f"{psutil.cpu_count()} ядер"
+            
+            # Информация о памяти
+            memory = psutil.virtual_memory()
+            memory_info = f"{memory.total // (1024**3)}GB"
+            
+            # Информация о диске
+            disk = psutil.disk_usage('/')
+            disk_info = f"{disk.total // (1024**3)}GB"
+            
+            return {
+                'system': system,
+                'cpu': cpu_info,
+                'memory': memory_info,
+                'disk': disk_info
+            }
+        except:
+            return {'system': 'N/A', 'cpu': 'N/A', 'memory': 'N/A', 'disk': 'N/A'}
+    
+    def create_charts(self, parent):
+        """Создание графиков"""
+        # Создаем фигуру для matplotlib
+        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(3, 1, figsize=(10, 8))
+        self.fig.tight_layout(pad=3.0)
+        
+        # Настраиваем графики
+        self.ax1.set_title('Использование CPU (%)')
+        self.ax1.set_ylim(0, 100)
+        self.ax1.grid(True)
+        self.cpu_line, = self.ax1.plot(self.time_points, self.cpu_data, 'r-')
+        
+        self.ax2.set_title('Использование памяти (%)')
+        self.ax2.set_ylim(0, 100)
+        self.ax2.grid(True)
+        self.memory_line, = self.ax2.plot(self.time_points, self.memory_data, 'b-')
+        
+        self.ax3.set_title('Использование диска (%)')
+        self.ax3.set_ylim(0, 100)
+        self.ax3.grid(True)
+        self.disk_line, = self.ax3.plot(self.time_points, self.disk_data, 'g-')
+        
+        # Встраиваем график в tkinter
+        self.canvas = FigureCanvasTkAgg(self.fig, parent)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    
+    def create_processes_tab(self, parent):
+        """Создание вкладки с процессами"""
+        # Фрейм для процессов
+        processes_frame = tk.Frame(parent)
+        processes_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        
+        # Заголовок
+        tk.Label(processes_frame, text="Процессы", font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        
+        # Таблица процессов
+        columns = ("pid", "name", "cpu", "memory", "status")
+        self.process_tree = ttk.Treeview(processes_frame, columns=columns, show="headings", height=8)
+        
+        # Настраиваем колонки
+        self.process_tree.heading("pid", text="PID")
+        self.process_tree.heading("name", text="Имя")
+        self.process_tree.heading("cpu", text="CPU %")
+        self.process_tree.heading("memory", text="Память %")
+        self.process_tree.heading("status", text="Статус")
+        
+        self.process_tree.column("pid", width=80)
+        self.process_tree.column("name", width=200)
+        self.process_tree.column("cpu", width=80)
+        self.process_tree.column("memory", width=80)
+        self.process_tree.column("status", width=100)
+        
+        # Полоса прокрутки
+        scrollbar = ttk.Scrollbar(processes_frame, orient=tk.VERTICAL, command=self.process_tree.yview)
+        self.process_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.process_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Кнопки управления процессами
+        process_btn_frame = tk.Frame(processes_frame)
+        process_btn_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Button(process_btn_frame, text="Обновить процессы", 
+                 command=self.update_processes).pack(side=tk.LEFT, padx=5)
+        tk.Button(process_btn_frame, text="Завершить процесс", 
+                 command=self.kill_process).pack(side=tk.LEFT, padx=5)
+    
+    def start_monitoring(self):
+        """Запуск мониторинга"""
+        self.monitoring = True
+        self.monitor_thread = threading.Thread(target=self.monitoring_loop, daemon=True)
+        self.monitor_thread.start()
+    
+    def monitoring_loop(self):
+        """Цикл мониторинга"""
+        while self.monitoring:
+            try:
+                self.update_system_data()
+                self.update_charts()
+                self.update_processes()
+                
+                time.sleep(self.update_interval)
+                
+            except Exception as e:
+                print(f"Ошибка мониторинга: {e}")
+                time.sleep(1)
+    
+    def update_system_data(self):
+        """Обновление данных системы"""
+        # CPU
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        self.cpu_data.pop(0)
+        self.cpu_data.append(cpu_percent)
+        
+        # Память
+        memory = psutil.virtual_memory()
+        memory_percent = memory.percent
+        self.memory_data.pop(0)
+        self.memory_data.append(memory_percent)
+        
+        # Диск
+        disk = psutil.disk_usage('/')
+        disk_percent = disk.percent
+        self.disk_data.pop(0)
+        self.disk_data.append(disk_percent)
+    
+    def update_charts(self):
+        """Обновление графиков"""
+        # Обновляем данные линий
+        self.cpu_line.set_ydata(self.cpu_data)
+        self.memory_line.set_ydata(self.memory_data)
+        self.disk_line.set_ydata(self.disk_data)
+        
+        # Перерисовываем canvas
+        self.canvas.draw_idle()
+    
+    def update_processes(self):
+        """Обновление списка процессов"""
+        # Очищаем текущий список
+        for item in self.process_tree.get_children():
+            self.process_tree.delete(item)
+        
+        try:
+            # Получаем список процессов
+            processes = []
+            for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'status']):
+                try:
+                    processes.append(proc.info)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            
+            # Сортируем по использованию CPU
+            processes.sort(key=lambda x: x['cpu_percent'] or 0, reverse=True)
+            
+            # Добавляем в таблицу (топ 50 процессов)
+            for proc in processes[:50]:
+                self.process_tree.insert("", tk.END, values=(
+                    proc['pid'],
+                    proc['name'][:30],  # Обрезаем длинные имена
+                    f"{proc['cpu_percent'] or 0:.1f}",
+                    f"{proc['memory_percent'] or 0:.2f}",
+                    proc['status']
+                ))
+                
+        except Exception as e:
+            print(f"Ошибка обновления процессов: {e}")
+    
+    def kill_process(self):
+        """Завершение выбранного процесса"""
+        selection = self.process_tree.selection()
+        if selection:
+            item = self.process_tree.item(selection[0])
+            pid = item['values'][0]
+            
+            try:
+                process = psutil.Process(pid)
+                process.terminate()
+                self.update_processes()
+            except Exception as e:
+                tk.messagebox.showerror("Ошибка", f"Не удалось завершить процесс: {e}")
+    
+    def force_update(self):
+        """Принудительное обновление данных"""
+        self.update_interval = self.interval_var.get()
+        self.update_system_data()
+        self.update_charts()
+        self.update_processes()
+
+root = tk.Tk()
+app = SystemMonitor(root)
+root.mainloop()

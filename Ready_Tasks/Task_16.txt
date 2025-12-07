@@ -1,0 +1,179 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import qrcode
+from PIL import Image, ImageTk
+import io
+
+class QRCodeGenerator:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Генератор QR-кодов")
+        self.root.geometry("500x600")
+        
+        self.qr_size = 300
+        self.current_qr = None
+        
+        self.create_widgets()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Заголовок
+        title_label = tk.Label(self.root, text="Генератор QR-кодов", 
+                              font=("Arial", 16, "bold"))
+        title_label.pack(pady=10)
+        
+        # Поле ввода
+        input_frame = tk.Frame(self.root)
+        input_frame.pack(pady=10, padx=20, fill=tk.X)
+        
+        tk.Label(input_frame, text="Текст/Ссылка:", font=("Arial", 12)).pack(anchor=tk.W)
+        self.text_var = tk.StringVar()
+        self.text_entry = tk.Entry(input_frame, textvariable=self.text_var, 
+                                  font=("Arial", 12))
+        self.text_entry.pack(fill=tk.X, pady=5)
+        self.text_entry.bind("<KeyRelease>", self.generate_qr_preview)
+        
+        # Настройки размера
+        size_frame = tk.Frame(self.root)
+        size_frame.pack(pady=10, padx=20, fill=tk.X)
+        
+        tk.Label(size_frame, text="Размер QR-кода:", font=("Arial", 12)).pack(anchor=tk.W)
+        self.size_var = tk.StringVar(value="Средний")
+        size_combo = tk.OptionMenu(size_frame, self.size_var, "Маленький", "Средний", "Большой")
+        size_combo.pack(fill=tk.X, pady=5)
+        self.size_var.trace("w", self.generate_qr_preview)
+        
+        # Область предпросмотра
+        preview_frame = tk.Frame(self.root)
+        preview_frame.pack(pady=10)
+        
+        self.qr_label = tk.Label(preview_frame, text="Введите текст для генерации QR-кода", 
+                                font=("Arial", 10), fg="gray", width=40, height=10)
+        self.qr_label.pack()
+        
+        # Информация о данных
+        self.info_label = tk.Label(self.root, text="", font=("Arial", 10))
+        self.info_label.pack(pady=5)
+        
+        # Кнопки
+        button_frame = tk.Frame(self.root)
+        button_frame.pack(pady=20)
+        
+        tk.Button(button_frame, text="Сгенерировать", 
+                 command=self.generate_qr, font=("Arial", 12)).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Сохранить", 
+                 command=self.save_qr, font=("Arial", 12)).pack(side=tk.LEFT, padx=5)
+    
+    def get_qr_size(self):
+        """Получение размера QR-кода"""
+        size_map = {"Маленький": 200, "Средний": 300, "Большой": 400}
+        return size_map.get(self.size_var.get(), 300)
+    
+    def generate_qr_preview(self, *args):
+        """Генерация предпросмотра QR-кода"""
+        text = self.text_var.get().strip()
+        if len(text) > 50:  # Ограничение для предпросмотра
+            self.generate_qr()
+            return
+        
+        if text:
+            try:
+                # Создаем QR-код
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                    box_size=8,
+                    border=4,
+                )
+                qr.add_data(text)
+                qr.make(fit=True)
+                
+                img = qr.make_image(fill_color="black", back_color="white")
+                img = img.resize((self.get_qr_size(), self.get_qr_size()), Image.Resampling.LANCZOS)
+                
+                # Конвертируем для tkinter
+                self.current_qr = img
+                photo = ImageTk.PhotoImage(img)
+                
+                self.qr_label.config(image=photo, text="")
+                self.qr_label.image = photo
+                
+                # Обновляем информацию
+                self.info_label.config(text=f"Данные: {len(text)} символов")
+                
+            except Exception as e:
+                self.qr_label.config(image="", text="Ошибка генерации QR-кода")
+                self.info_label.config(text=f"Ошибка: {str(e)}")
+        else:
+            self.qr_label.config(image="", text="Введите текст для генерации QR-кода")
+            self.info_label.config(text="")
+            self.current_qr = None
+    
+    def generate_qr(self):
+        """Генерация полноразмерного QR-кода"""
+        text = self.text_var.get().strip()
+        if not text:
+            messagebox.showwarning("Внимание", "Введите текст для генерации QR-кода")
+            return
+        
+        try:
+            # Создаем QR-код с настройками в зависимости от размера данных
+            if len(text) < 100:
+                version = 1
+                box_size = 10
+            elif len(text) < 500:
+                version = 3
+                box_size = 8
+            else:
+                version = 5
+                box_size = 6
+            
+            qr = qrcode.QRCode(
+                version=version,
+                error_correction=qrcode.constants.ERROR_CORRECT_M,
+                box_size=box_size,
+                border=4,
+            )
+            qr.add_data(text)
+            qr.make(fit=True)
+            
+            img = qr.make_image(fill_color="black", back_color="white")
+            final_size = self.get_qr_size()
+            img = img.resize((final_size, final_size), Image.Resampling.LANCZOS)
+            
+            self.current_qr = img
+            photo = ImageTk.PhotoImage(img)
+            
+            self.qr_label.config(image=photo, text="")
+            self.qr_label.image = photo
+            
+            messagebox.showinfo("Успех", "QR-код успешно сгенерирован!")
+            
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сгенерировать QR-код: {str(e)}")
+    
+    def save_qr(self):
+        """Сохранение QR-кода в файл"""
+        if self.current_qr is None:
+            messagebox.showwarning("Внимание", "Сначала сгенерируйте QR-код")
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[
+                ("PNG files", "*.png"),
+                ("JPEG files", "*.jpg"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if filename:
+            try:
+                self.current_qr.save(filename)
+                messagebox.showinfo("Успех", f"QR-код сохранен как {filename}")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось сохранить файл: {str(e)}")
+
+root = tk.Tk()
+app = QRCodeGenerator(root)
+root.mainloop()

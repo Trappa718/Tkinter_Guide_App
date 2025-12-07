@@ -1,0 +1,115 @@
+import tkinter as tk
+
+class ColorTranslator:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Переводчик цветов")
+        self.root.geometry("500x400")
+        
+        self.create_widgets()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Холст для предпросмотра цвета
+        self.color_canvas = tk.Canvas(self.root, width=200, height=100, bg="#000000", 
+                                     relief=tk.RAISED, bd=2)
+        self.color_canvas.pack(pady=20)
+        
+        # Фрейм для HEX ввода
+        hex_frame = tk.Frame(self.root)
+        hex_frame.pack(pady=10)
+        
+        tk.Label(hex_frame, text="HEX:", font=("Arial", 12)).pack(side=tk.LEFT)
+        self.hex_var = tk.StringVar(value="#000000")
+        self.hex_entry = tk.Entry(hex_frame, textvariable=self.hex_var, 
+                                 font=("Arial", 12), width=10)
+        self.hex_entry.pack(side=tk.LEFT, padx=10)
+        self.hex_entry.bind("<FocusOut>", self.hex_to_rgb)
+        
+        # Фрейм для RGB значений
+        rgb_frame = tk.Frame(self.root)
+        rgb_frame.pack(pady=20)
+        
+        # Красный
+        red_frame = tk.Frame(rgb_frame)
+        red_frame.pack(pady=5)
+        tk.Label(red_frame, text="R:", fg="red", font=("Arial", 12)).pack(side=tk.LEFT)
+        self.red_var = tk.IntVar(value=0)
+        self.red_spinbox = tk.Spinbox(red_frame, from_=0, to=255, textvariable=self.red_var,
+                                     width=5, font=("Arial", 12), command=self.rgb_to_hex)
+        self.red_spinbox.pack(side=tk.LEFT, padx=10)
+        
+        # Зеленый
+        green_frame = tk.Frame(rgb_frame)
+        green_frame.pack(pady=5)
+        tk.Label(green_frame, text="G:", fg="green", font=("Arial", 12)).pack(side=tk.LEFT)
+        self.green_var = tk.IntVar(value=0)
+        self.green_spinbox = tk.Spinbox(green_frame, from_=0, to=255, textvariable=self.green_var,
+                                       width=5, font=("Arial", 12), command=self.rgb_to_hex)
+        self.green_spinbox.pack(side=tk.LEFT, padx=10)
+        
+        # Синий
+        blue_frame = tk.Frame(rgb_frame)
+        blue_frame.pack(pady=5)
+        tk.Label(blue_frame, text="B:", fg="blue", font=("Arial", 12)).pack(side=tk.LEFT)
+        self.blue_var = tk.IntVar(value=0)
+        self.blue_spinbox = tk.Spinbox(blue_frame, from_=0, to=255, textvariable=self.blue_var,
+                                      width=5, font=("Arial", 12), command=self.rgb_to_hex)
+        self.blue_spinbox.pack(side=tk.LEFT, padx=10)
+        
+        # Информационная метка
+        self.info_label = tk.Label(self.root, text="Введите HEX код или RGB значения", 
+                                  font=("Arial", 10), fg="gray")
+        self.info_label.pack(pady=10)
+    
+    def hex_to_rgb(self, event=None):
+        """Конвертация HEX в RGB"""
+        try:
+            hex_color = self.hex_var.get().strip().lstrip('#')
+            
+            if len(hex_color) == 6:
+                r = int(hex_color[0:2], 16)
+                g = int(hex_color[2:4], 16)
+                b = int(hex_color[4:6], 16)
+                
+                # Обновляем спинбоксы без вызова callback
+                self.red_var.set(r)
+                self.green_var.set(g)
+                self.blue_var.set(b)
+                
+                self.update_color_display()
+                
+        except ValueError:
+            self.info_label.config(text="Ошибка: неверный HEX формат", fg="red")
+    
+    def rgb_to_hex(self):
+        """Конвертация RGB в HEX"""
+        try:
+            r = self.red_var.get()
+            g = self.green_var.get()
+            b = self.blue_var.get()
+            
+            # Проверяем диапазон
+            if 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255:
+                hex_color = f"#{r:02x}{g:02x}{b:02x}"
+                self.hex_var.set(hex_color)
+                self.update_color_display()
+            else:
+                self.info_label.config(text="Ошибка: значения RGB должны быть от 0 до 255", fg="red")
+                
+        except tk.TclError:
+            self.info_label.config(text="Ошибка: введите числа от 0 до 255", fg="red")
+    
+    def update_color_display(self):
+        """Обновление отображения цвета"""
+        try:
+            hex_color = self.hex_var.get()
+            self.color_canvas.config(bg=hex_color)
+            self.info_label.config(text=f"Цвет: {hex_color}", fg="black")
+        except tk.TclError:
+            self.info_label.config(text="Ошибка отображения цвета", fg="red")
+
+# Запуск приложения
+root = tk.Tk()
+app = ColorTranslator(root)
+root.mainloop()

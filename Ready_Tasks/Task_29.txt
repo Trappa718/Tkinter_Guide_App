@@ -1,0 +1,417 @@
+import tkinter as tk
+from tkinter import scrolledtext, messagebox
+import socket
+import threading
+import zlib
+import io
+from PIL import Image, ImageTk
+import time
+
+class RemoteDesktop:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Удаленный рабочий стол")
+        self.root.geometry("900x700")
+        
+        # Настройки сети
+        self.host = 'localhost'
+        self.port = 8888
+        self.is_server = False
+        self.connected = False
+        
+        # Сокеты
+        self.socket = None
+        self.server_socket = None
+        self.client_socket = None
+        
+        # Изображение
+        self.current_image = None
+        self.image_label = None
+        
+        self.create_widgets()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Главный фрейм
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Верхняя панель подключения
+        connection_frame = tk.Frame(main_frame)
+        connection_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Настройки подключения
+        settings_frame = tk.Frame(connection_frame)
+        settings_frame.pack(fill=tk.X)
+        
+        tk.Label(settings_frame, text="Хост:").pack(side=tk.LEFT)
+        self.host_var = tk.StringVar(value=self.host)
+        host_entry = tk.Entry(settings_frame, textvariable=self.host_var, width=15)
+        host_entry.pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(settings_frame, text="Порт:").pack(side=tk.LEFT)
+        self.port_var = tk.IntVar(value=self.port)
+        port_entry = tk.Entry(settings_frame, textvariable=self.port_var, width=8)
+        port_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Кнопки подключения
+        btn_frame = tk.Frame(connection_frame)
+        btn_frame.pack(fill=tk.X, pady=5)
+        
+        self.server_btn = tk.Button(btn_frame, text="Запустить сервер", 
+                                   command=self.start_server)
+        self.server_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.connect_btn = tk.Button(btn_frame, text="Подключиться", 
+                                    command=self.connect_to_server)
+        self.connect_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.disconnect_btn = tk.Button(btn_frame, text="Отключиться", 
+                                       command=self.disconnect, state=tk.DISABLED)
+        self.disconnect_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Настройки качества
+        quality_frame = tk.Frame(connection_frame)
+        quality_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(quality_frame, text="Качество:").pack(side=tk.LEFT)
+        self.quality_var = tk.StringVar(value="Среднее")
+        quality_combo = tk.OptionMenu(quality_frame, self.quality_var, 
+                                     "Низкое", "Среднее", "Высокое")
+        quality_combo.pack(side=tk.LEFT, padx=5)
+        
+        # Статус
+        self.status_var = tk.StringVar(value="Не подключено")
+        status_label = tk.Label(connection_frame, textvariable=self.status_var, 
+                               fg="red", font=("Arial", 10))
+        status_label.pack(anchor=tk.W)
+        
+        # Область удаленного рабочего стола
+        desktop_frame = tk.Frame(main_frame)
+        desktop_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Заголовок
+        tk.Label(desktop_frame, text="Удаленный рабочий стол", 
+                font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        
+        # Холст для изображения
+        self.desktop_canvas = tk.Canvas(desktop_frame, bg="lightgray", 
+                                       relief=tk.SUNKEN, bd=2)
+        self.desktop_canvas.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Изначальное сообщение
+        self.desktop_canvas.create_text(400, 300, 
+                                       text="Подключитесь к удаленному рабочему столу",
+                                       font=("Arial", 14), fill="gray")
+        
+        # Файловый менеджер (упрощенный)
+        self.create_file_manager(desktop_frame)
+        
+        # Лог соединения
+        log_frame = tk.Frame(main_frame)
+        log_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        tk.Label(log_frame, text="Лог соединения", 
+                font=("Arial", 10, "bold")).pack(anchor=tk.W)
+        
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=6, state=tk.DISABLED)
+        self.log_text.pack(fill=tk.X)
+    
+    def create_file_manager(self, parent):
+        """Создание упрощенного файлового менеджера"""
+        file_frame = tk.Frame(parent)
+        file_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(file_frame, text="Файловый менеджер", 
+                font=("Arial", 10, "bold")).pack(anchor=tk.W)
+        
+        file_btn_frame = tk.Frame(file_frame)
+        file_btn_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Button(file_btn_frame, text="Отправить файл", 
+                 command=self.send_file, state=tk.DISABLED).pack(side=tk.LEFT, padx=5)
+        tk.Button(file_btn_frame, text="Получить файл", 
+                 command=self.receive_file, state=tk.DISABLED).pack(side=tk.LEFT, padx=5)
+    
+    def start_server(self):
+        """Запуск сервера"""
+        if self.connected:
+            return
+        
+        self.host = self.host_var.get()
+        self.port = self.port_var.get()
+        
+        try:
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(1)
+            
+            self.is_server = True
+            self.connected = True
+            
+            self.update_ui_connected()
+            self.log("Сервер запущен. Ожидание подключения...")
+            
+            # Запускаем поток для принятия подключений
+            server_thread = threading.Thread(target=self.accept_connection, daemon=True)
+            server_thread.start()
+            
+        except Exception as e:
+            self.log(f"Ошибка запуска сервера: {str(e)}")
+    
+    def accept_connection(self):
+        """Принятие подключения (сервер)"""
+        try:
+            self.client_socket, address = self.server_socket.accept()
+            self.log(f"Подключился клиент: {address}")
+            
+            # Запускаем поток для отправки скриншотов
+            if self.is_server:
+                screen_thread = threading.Thread(target=self.send_screenshots, daemon=True)
+                screen_thread.start()
+            
+            # Запускаем поток для приема команд
+            receive_thread = threading.Thread(target=self.receive_commands, daemon=True)
+            receive_thread.start()
+            
+        except Exception as e:
+            if self.connected:
+                self.log(f"Ошибка принятия подключения: {str(e)}")
+    
+    def connect_to_server(self):
+        """Подключение к серверу"""
+        if self.connected:
+            return
+        
+        self.host = self.host_var.get()
+        self.port = self.port_var.get()
+        
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.host, self.port))
+            
+            self.connected = True
+            self.is_server = False
+            
+            self.update_ui_connected()
+            self.log(f"Подключено к {self.host}:{self.port}")
+            
+            # Запускаем поток для приема скриншотов
+            receive_thread = threading.Thread(target=self.receive_screenshots, daemon=True)
+            receive_thread.start()
+            
+            # Запускаем поток для отправки команд
+            command_thread = threading.Thread(target=self.send_commands, daemon=True)
+            command_thread.start()
+            
+        except Exception as e:
+            self.log(f"Ошибка подключения: {str(e)}")
+    
+    def send_screenshots(self):
+        """Отправка скриншотов (сервер)"""
+        if not self.connected or not self.is_server:
+            return
+        
+        try:
+            while self.connected and self.client_socket:
+                # Имитация скриншота (в реальном приложении здесь бы использовался PIL.ImageGrab)
+                time.sleep(0.1)  # 10 FPS
+                
+                # Создаем тестовое изображение
+                img = self.create_test_image()
+                
+                # Сжимаем и отправляем
+                if img and self.client_socket:
+                    self.send_image(img)
+                    
+        except Exception as e:
+            if self.connected:
+                self.log(f"Ошибка отправки скриншотов: {str(e)}")
+    
+    def create_test_image(self):
+        """Создание тестового изображения (заглушка)"""
+        # В реальном приложении здесь бы использовался ImageGrab.grab()
+        from PIL import ImageDraw
+        
+        # Создаем простое изображение для демонстрации
+        img = Image.new('RGB', (800, 600), color='white')
+        draw = ImageDraw.Draw(img)
+        
+        # Рисуем часы
+        current_time = time.strftime("%H:%M:%S")
+        draw.text((50, 50), f"Удаленный рабочий стол", fill='black')
+        draw.text((50, 80), f"Время: {current_time}", fill='black')
+        draw.text((50, 110), "Это имитация удаленного рабочего стола", fill='black')
+        
+        # Рисуем некоторые элементы
+        draw.rectangle([100, 150, 300, 200], outline='blue', width=2)
+        draw.text((120, 160), "Кнопка 1", fill='blue')
+        
+        draw.rectangle([100, 220, 300, 270], outline='red', width=2)
+        draw.text((120, 230), "Кнопка 2", fill='red')
+        
+        draw.rectangle([100, 290, 300, 340], outline='green', width=2)
+        draw.text((120, 300), "Кнопка 3", fill='green')
+        
+        return img
+    
+    def send_image(self, img):
+        """Отправка изображения"""
+        try:
+            # Конвертируем изображение в байты
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='JPEG', quality=50)
+            img_bytes = img_byte_arr.getvalue()
+            
+            # Сжимаем
+            compressed = zlib.compress(img_bytes)
+            
+            # Отправляем размер и данные
+            size = len(compressed)
+            header = size.to_bytes(4, 'big')
+            
+            if self.is_server and self.client_socket:
+                self.client_socket.send(header + compressed)
+            elif not self.is_server and self.socket:
+                self.socket.send(header + compressed)
+                
+        except Exception as e:
+            self.log(f"Ошибка отправки изображения: {str(e)}")
+    
+    def receive_screenshots(self):
+        """Прием скриншотов (клиент)"""
+        if not self.connected or self.is_server:
+            return
+        
+        try:
+            while self.connected and self.socket:
+                # Получаем заголовок с размером
+                header = self.socket.recv(4)
+                if not header:
+                    break
+                
+                size = int.from_bytes(header, 'big')
+                
+                # Получаем данные
+                data = b""
+                while len(data) < size:
+                    chunk = self.socket.recv(min(4096, size - len(data)))
+                    if not chunk:
+                        break
+                    data += chunk
+                
+                if data:
+                    # Распаковываем и отображаем
+                    decompressed = zlib.decompress(data)
+                    self.display_image(decompressed)
+                    
+        except Exception as e:
+            if self.connected:
+                self.log(f"Ошибка приема скриншотов: {str(e)}")
+    
+    def display_image(self, image_data):
+        """Отображение полученного изображения"""
+        try:
+            # Конвертируем байты в изображение
+            img_byte_arr = io.BytesIO(image_data)
+            img = Image.open(img_byte_arr)
+            
+            # Конвертируем для tkinter
+            photo = ImageTk.PhotoImage(img)
+            
+            # Обновляем canvas
+            self.desktop_canvas.delete("all")
+            self.desktop_canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+            self.desktop_canvas.image = photo  # Сохраняем ссылку
+            
+        except Exception as e:
+            self.log(f"Ошибка отображения изображения: {str(e)}")
+    
+    def receive_commands(self):
+        """Прием команд (сервер)"""
+        if not self.connected or not self.is_server:
+            return
+        
+        try:
+            while self.connected and self.client_socket:
+                data = self.client_socket.recv(1024)
+                if not data:
+                    break
+                
+                command = data.decode('utf-8')
+                self.log(f"Получена команда: {command}")
+                
+        except Exception as e:
+            if self.connected:
+                self.log(f"Ошибка приема команд: {str(e)}")
+    
+    def send_commands(self):
+        """Отправка команд (клиент)"""
+        # В этой демо-версии команды не отправляются
+        pass
+    
+    def send_file(self):
+        """Отправка файла"""
+        # Заглушка для функциональности отправки файлов
+        self.log("Функциональность отправки файлов не реализована в демо-версии")
+    
+    def receive_file(self):
+        """Получение файла"""
+        # Заглушка для функциональности получения файлов
+        self.log("Функциональность получения файлов не реализована в демо-версии")
+    
+    def disconnect(self):
+        """Отключение"""
+        self.connected = False
+        
+        try:
+            if self.is_server:
+                if self.client_socket:
+                    self.client_socket.close()
+                if self.server_socket:
+                    self.server_socket.close()
+            else:
+                if self.socket:
+                    self.socket.close()
+        except:
+            pass
+        
+        self.update_ui_disconnected()
+        self.log("Отключено")
+    
+    def update_ui_connected(self):
+        """Обновление UI при подключении"""
+        self.status_var.set("Подключено")
+        
+        self.server_btn.config(state=tk.DISABLED)
+        self.connect_btn.config(state=tk.DISABLED)
+        self.disconnect_btn.config(state=tk.NORMAL)
+    
+    def update_ui_disconnected(self):
+        """Обновление UI при отключении"""
+        self.status_var.set("Не подключено")
+        
+        self.server_btn.config(state=tk.NORMAL)
+        self.connect_btn.config(state=tk.NORMAL)
+        self.disconnect_btn.config(state=tk.DISABLED)
+        
+        # Очищаем canvas
+        self.desktop_canvas.delete("all")
+        self.desktop_canvas.create_text(400, 300, 
+                                       text="Подключитесь к удаленному рабочему столу",
+                                       font=("Arial", 14), fill="gray")
+    
+    def log(self, message):
+        """Добавление сообщения в лог"""
+        timestamp = time.strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}\n"
+        
+        self.log_text.config(state=tk.NORMAL)
+        self.log_text.insert(tk.END, formatted_message)
+        self.log_text.see(tk.END)
+        self.log_text.config(state=tk.DISABLED)
+
+root = tk.Tk()
+app = RemoteDesktop(root)
+root.mainloop()

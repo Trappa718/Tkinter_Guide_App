@@ -1,0 +1,290 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import cv2
+import numpy as np
+from PIL import Image, ImageTk
+import os
+
+class ImageRecognitionApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Распознавание образов")
+        self.root.geometry("1000x700")
+        
+        self.current_image = None
+        self.processed_image = None
+        self.current_model = "faces"
+        
+        # Загрузка каскадов для распознавания
+        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
+        
+        self.create_widgets()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Главный фрейм
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Верхняя панель управления
+        control_frame = tk.Frame(main_frame)
+        control_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Загрузка изображения
+        tk.Button(control_frame, text="Загрузить изображение", 
+                 command=self.load_image).pack(side=tk.LEFT, padx=5)
+        
+        # Выбор модели
+        model_frame = tk.Frame(control_frame)
+        model_frame.pack(side=tk.LEFT, padx=20)
+        
+        tk.Label(model_frame, text="Модель:").pack(side=tk.LEFT)
+        self.model_var = tk.StringVar(value="faces")
+        models = [("Лица", "faces"), ("Объекты", "objects"), ("Текст", "text")]
+        
+        for text, value in models:
+            rb = tk.Radiobutton(model_frame, text=text, variable=self.model_var,
+                               value=value, command=self.on_model_change)
+            rb.pack(side=tk.LEFT, padx=5)
+        
+        # Кнопки обработки
+        tk.Button(control_frame, text="Распознать", 
+                 command=self.process_image).pack(side=tk.LEFT, padx=5)
+        tk.Button(control_frame, text="Сохранить результат", 
+                 command=self.save_result).pack(side=tk.LEFT, padx=5)
+        
+        # Область изображений
+        image_frame = tk.Frame(main_frame)
+        image_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Исходное изображение
+        left_frame = tk.Frame(image_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        
+        tk.Label(left_frame, text="Исходное изображение", 
+                font=("Arial", 12, "bold")).pack()
+        
+        self.original_label = tk.Label(left_frame, text="Загрузите изображение", 
+                                      bg="lightgray", width=50, height=20)
+        self.original_label.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Обработанное изображение
+        right_frame = tk.Frame(image_frame)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        tk.Label(right_frame, text="Результат распознавания", 
+                font=("Arial", 12, "bold")).pack()
+        
+        self.processed_label = tk.Label(right_frame, text="Результат появится здесь", 
+                                       bg="lightgray", width=50, height=20)
+        self.processed_label.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Статистика
+        stats_frame = tk.Frame(main_frame)
+        stats_frame.pack(fill=tk.X, pady=10)
+        
+        self.stats_var = tk.StringVar(value="Статистика: -")
+        stats_label = tk.Label(stats_frame, textvariable=self.stats_var, 
+                              font=("Arial", 10))
+        stats_label.pack(anchor=tk.W)
+    
+    def load_image(self):
+        """Загрузка изображения"""
+        filename = filedialog.askopenfilename(
+            filetypes=[
+                ("Image files", "*.jpg *.jpeg *.png *.bmp *.tiff"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if filename:
+            try:
+                # Загружаем изображение с OpenCV
+                self.current_image = cv2.imread(filename)
+                
+                if self.current_image is None:
+                    messagebox.showerror("Ошибка", "Не удалось загрузить изображение")
+                    return
+                
+                # Конвертируем для отображения в tkinter
+                image_rgb = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2RGB)
+                image_pil = Image.fromarray(image_rgb)
+                
+                # Масштабируем для отображения
+                image_pil.thumbnail((400, 400), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(image_pil)
+                
+                self.original_label.config(image=photo, text="")
+                self.original_label.image = photo
+                
+                self.processed_label.config(image="", text="Нажмите 'Распознать'")
+                self.stats_var.set("Статистика: Изображение загружено")
+                
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка загрузки: {str(e)}")
+    
+    def on_model_change(self):
+        """Обработка изменения модели"""
+        self.current_model = self.model_var.get()
+        if self.current_image is not None:
+            self.process_image()
+    
+    def process_image(self):
+        """Обработка изображения выбранной моделью"""
+        if self.current_image is None:
+            messagebox.showwarning("Внимание", "Сначала загрузите изображение")
+            return
+        
+        try:
+            if self.current_model == "faces":
+                result_image, stats = self.detect_faces()
+            elif self.current_model == "objects":
+                result_image, stats = self.detect_objects()
+            elif self.current_model == "text":
+                result_image, stats = self.detect_text()
+            else:
+                result_image, stats = self.current_image, "Модель не реализована"
+            
+            # Отображаем результат
+            self.display_processed_image(result_image)
+            self.stats_var.set(f"Статистика: {stats}")
+            
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Ошибка обработки: {str(e)}")
+    
+    def detect_faces(self):
+        """Обнаружение лиц"""
+        image = self.current_image.copy()
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Обнаружение лиц
+        faces = self.face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(30, 30)
+        )
+        
+        # Рисуем прямоугольники вокруг лиц
+        face_count = 0
+        for (x, y, w, h) in faces:
+            cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)
+            
+            # Обнаружение глаз внутри лица
+            roi_gray = gray[y:y+h, x:x+w]
+            roi_color = image[y:y+h, x:x+w]
+            
+            eyes = self.eye_cascade.detectMultiScale(roi_gray)
+            for (ex, ey, ew, eh) in eyes:
+                cv2.rectangle(roi_color, (ex, ey), (ex + ew, ey + eh), (0, 255, 0), 2)
+            
+            face_count += 1
+        
+        stats = f"Найдено лиц: {face_count}"
+        return image, stats
+    
+    def detect_objects(self):
+        """Обнаружение объектов (упрощенная версия)"""
+        image = self.current_image.copy()
+        
+        # Конвертируем в HSV для цветового сегментирования
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        
+        # Простой детектор красных объектов
+        lower_red = np.array([0, 120, 70])
+        upper_red = np.array([10, 255, 255])
+        mask1 = cv2.inRange(hsv, lower_red, upper_red)
+        
+        lower_red = np.array([170, 120, 70])
+        upper_red = np.array([180, 255, 255])
+        mask2 = cv2.inRange(hsv, lower_red, upper_red)
+        
+        mask = mask1 + mask2
+        
+        # Находим контуры
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        object_count = 0
+        for contour in contours:
+            if cv2.contourArea(contour) > 500:  # Фильтруем мелкие объекты
+                x, y, w, h = cv2.boundingRect(contour)
+                cv2.rectangle(image, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                object_count += 1
+        
+        stats = f"Найдено объектов: {object_count}"
+        return image, stats
+    
+    def detect_text(self):
+        """Обнаружение текста (упрощенная версия)"""
+        image = self.current_image.copy()
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Применяем различные методы для выделения текста
+        # 1. Адаптивный порог
+        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                      cv2.THRESH_BINARY, 11, 2)
+        
+        # 2. Морфологические операции для соединения текста
+        kernel = np.ones((3, 3), np.uint8)
+        morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        
+        # 3. Находим контуры
+        contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        text_regions = 0
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if 100 < area < 5000:  # Размер текстовых областей
+                x, y, w, h = cv2.boundingRect(contour)
+                
+                # Проверяем соотношение сторон (характерно для текста)
+                aspect_ratio = w / h
+                if 0.1 < aspect_ratio < 10:
+                    cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 255), 2)
+                    text_regions += 1
+        
+        stats = f"Областей с текстом: {text_regions}"
+        return image, stats
+    
+    def display_processed_image(self, image):
+        """Отображение обработанного изображения"""
+        if image is not None:
+            # Конвертируем для tkinter
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image_pil = Image.fromarray(image_rgb)
+            
+            # Масштабируем
+            image_pil.thumbnail((400, 400), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(image_pil)
+            
+            self.processed_label.config(image=photo, text="")
+            self.processed_label.image = photo
+            
+            self.processed_image = image
+    
+    def save_result(self):
+        """Сохранение результата"""
+        if self.processed_image is None:
+            messagebox.showwarning("Внимание", "Нет результата для сохранения")
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".jpg",
+            filetypes=[
+                ("JPEG files", "*.jpg"),
+                ("PNG files", "*.png"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if filename:
+            try:
+                cv2.imwrite(filename, self.processed_image)
+                messagebox.showinfo("Успех", "Результат сохранен")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось сохранить: {str(e)}")
+
+root = tk.Tk()
+app = ImageRecognitionApp(root)
+root.mainloop()

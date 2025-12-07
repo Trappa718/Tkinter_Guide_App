@@ -1,0 +1,327 @@
+import tkinter as tk
+from tkinter import colorchooser, filedialog
+import xml.etree.ElementTree as ET
+
+class VectorEditor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Векторный редактор")
+        self.root.geometry("900x700")
+        
+        # Переменные редактора
+        self.current_tool = "select"
+        self.current_color = "black"
+        self.fill_color = ""
+        self.line_width = 2
+        self.objects = []
+        self.selected_object = None
+        self.drawing = False
+        self.start_x = 0
+        self.start_y = 0
+        self.current_obj = None
+        
+        self.create_widgets()
+        self.setup_canvas()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Главный фрейм
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Панель инструментов слева
+        left_frame = tk.Frame(main_frame, width=150, bg="lightgray")
+        left_frame.pack(side=tk.LEFT, fill=tk.Y)
+        left_frame.pack_propagate(False)
+        
+        # Инструменты
+        tools_frame = tk.Frame(left_frame)
+        tools_frame.pack(pady=10)
+        
+        tk.Label(tools_frame, text="Инструменты", font=("Arial", 12, "bold")).pack()
+        
+        tools = [
+            ("Выделение", "select"),
+            ("Линия", "line"),
+            ("Прямоугольник", "rectangle"),
+            ("Овал", "oval"),
+            ("Кривая", "curve")
+        ]
+        
+        self.tool_var = tk.StringVar(value="select")
+        
+        for text, value in tools:
+            rb = tk.Radiobutton(tools_frame, text=text, variable=self.tool_var,
+                               value=value, command=self.select_tool)
+            rb.pack(anchor=tk.W, pady=2)
+        
+        # Свойства
+        props_frame = tk.Frame(left_frame)
+        props_frame.pack(pady=10)
+        
+        tk.Label(props_frame, text="Свойства", font=("Arial", 12, "bold")).pack()
+        
+        # Цвет обводки
+        tk.Button(props_frame, text="Цвет обводки", 
+                 command=self.choose_stroke_color).pack(pady=5, fill=tk.X)
+        
+        # Цвет заливки
+        tk.Button(props_frame, text="Цвет заливки", 
+                 command=self.choose_fill_color).pack(pady=5, fill=tk.X)
+        
+        # Толщина линии
+        tk.Label(props_frame, text="Толщина:").pack()
+        self.width_var = tk.IntVar(value=2)
+        width_scale = tk.Scale(props_frame, from_=1, to=10, orient=tk.HORIZONTAL,
+                              variable=self.width_var, command=self.update_line_width)
+        width_scale.pack(fill=tk.X)
+        
+        # Слои
+        layers_frame = tk.Frame(left_frame)
+        layers_frame.pack(pady=10, fill=tk.BOTH, expand=True)
+        
+        tk.Label(layers_frame, text="Слои", font=("Arial", 12, "bold")).pack()
+        
+        self.layers_listbox = tk.Listbox(layers_frame)
+        self.layers_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        layers_btn_frame = tk.Frame(layers_frame)
+        layers_btn_frame.pack(fill=tk.X)
+        
+        tk.Button(layers_btn_frame, text="Вверх", command=self.layer_up).pack(side=tk.LEFT, expand=True)
+        tk.Button(layers_btn_frame, text="Вниз", command=self.layer_down).pack(side=tk.LEFT, expand=True)
+        
+        # Кнопки управления
+        control_frame = tk.Frame(left_frame)
+        control_frame.pack(pady=10)
+        
+        tk.Button(control_frame, text="Очистить", command=self.clear_canvas).pack(fill=tk.X, pady=2)
+        tk.Button(control_frame, text="Экспорт SVG", command=self.export_svg).pack(fill=tk.X, pady=2)
+        
+        # Холст для рисования
+        self.canvas = tk.Canvas(main_frame, bg="white", cursor="crosshair")
+        self.canvas.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+    
+    def setup_canvas(self):
+        """Настройка событий холста"""
+        self.canvas.bind("<Button-1>", self.start_draw)
+        self.canvas.bind("<B1-Motion>", self.drawing_process)
+        self.canvas.bind("<ButtonRelease-1>", self.stop_draw)
+        self.canvas.bind("<Button-3>", self.select_object)
+    
+    def select_tool(self):
+        """Выбор инструмента"""
+        self.current_tool = self.tool_var.get()
+    
+    def choose_stroke_color(self):
+        """Выбор цвета обводки"""
+        color = colorchooser.askcolor(initialcolor=self.current_color)[1]
+        if color:
+            self.current_color = color
+            if self.selected_object:
+                self.canvas.itemconfig(self.selected_object, outline=color)
+    
+    def choose_fill_color(self):
+        """Выбор цвета заливки"""
+        color = colorchooser.askcolor(initialcolor=self.fill_color)[1]
+        if color:
+            self.fill_color = color
+            if self.selected_object:
+                self.canvas.itemconfig(self.selected_object, fill=color)
+    
+    def update_line_width(self, value):
+        """Обновление толщины линии"""
+        self.line_width = int(value)
+        if self.selected_object:
+            self.canvas.itemconfig(self.selected_object, width=self.line_width)
+    
+    def start_draw(self, event):
+        """Начало рисования"""
+        if self.current_tool == "select":
+            return
+        
+        self.drawing = True
+        self.start_x = event.x
+        self.start_y = event.y
+        
+        if self.current_tool == "line":
+            self.current_obj = self.canvas.create_line(
+                self.start_x, self.start_y, event.x, event.y,
+                fill=self.current_color, width=self.line_width
+            )
+        elif self.current_tool == "rectangle":
+            self.current_obj = self.canvas.create_rectangle(
+                self.start_x, self.start_y, event.x, event.y,
+                outline=self.current_color, width=self.line_width,
+                fill=self.fill_color
+            )
+        elif self.current_tool == "oval":
+            self.current_obj = self.canvas.create_oval(
+                self.start_x, self.start_y, event.x, event.y,
+                outline=self.current_color, width=self.line_width,
+                fill=self.fill_color
+            )
+        elif self.current_tool == "curve":
+            self.current_obj = self.canvas.create_line(
+                self.start_x, self.start_y, event.x, event.y,
+                fill=self.current_color, width=self.line_width, smooth=True
+            )
+    
+    def drawing_process(self, event):
+        """Процесс рисования"""
+        if not self.drawing or not self.current_obj:
+            return
+        
+        if self.current_tool in ["line", "rectangle", "oval"]:
+            self.canvas.coords(self.current_obj, 
+                              self.start_x, self.start_y, event.x, event.y)
+        elif self.current_tool == "curve":
+            # Для кривой добавляем точки
+            coords = self.canvas.coords(self.current_obj)
+            coords.extend([event.x, event.y])
+            self.canvas.coords(self.current_obj, *coords)
+    
+    def stop_draw(self, event):
+        """Окончание рисования"""
+        if self.drawing and self.current_obj:
+            self.objects.append(self.current_obj)
+            self.update_layers_list()
+        
+        self.drawing = False
+        self.current_obj = None
+    
+    def select_object(self, event):
+        """Выбор объекта"""
+        if self.current_tool != "select":
+            return
+        
+        # Снимаем выделение с предыдущего объекта
+        if self.selected_object:
+            self.canvas.itemconfig(self.selected_object, width=self.line_width)
+        
+        # Находим объект под курсором
+        item = self.canvas.find_closest(event.x, event.y)
+        if item:
+            self.selected_object = item[0]
+            # Выделяем объект
+            self.canvas.itemconfig(self.selected_object, width=self.line_width + 2)
+            
+            # Обновляем список слоев
+            self.update_layers_list()
+    
+    def update_layers_list(self):
+        """Обновление списка слоев"""
+        self.layers_listbox.delete(0, tk.END)
+        for obj in reversed(self.objects):  # Показываем сверху вниз
+            obj_type = self.canvas.type(obj)
+            self.layers_listbox.insert(tk.END, f"{obj_type} {obj}")
+    
+    def layer_up(self):
+        """Перемещение слоя вверх"""
+        if self.selected_object and self.selected_object in self.objects:
+            index = self.objects.index(self.selected_object)
+            if index < len(self.objects) - 1:
+                self.objects[index], self.objects[index + 1] = self.objects[index + 1], self.objects[index]
+                self.canvas.tag_raise(self.selected_object)
+                self.update_layers_list()
+    
+    def layer_down(self):
+        """Перемещение слоя вниз"""
+        if self.selected_object and self.selected_object in self.objects:
+            index = self.objects.index(self.selected_object)
+            if index > 0:
+                self.objects[index], self.objects[index - 1] = self.objects[index - 1], self.objects[index]
+                self.canvas.tag_lower(self.selected_object)
+                self.update_layers_list()
+    
+    def clear_canvas(self):
+        """Очистка холста"""
+        self.canvas.delete("all")
+        self.objects.clear()
+        self.layers_listbox.delete(0, tk.END)
+        self.selected_object = None
+    
+    def export_svg(self):
+        """Экспорт в SVG"""
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".svg",
+            filetypes=[("SVG files", "*.svg"), ("All files", "*.*")]
+        )
+        
+        if filename:
+            try:
+                self.create_svg_file(filename)
+                tk.messagebox.showinfo("Успех", "SVG файл сохранен")
+            except Exception as e:
+                tk.messagebox.showerror("Ошибка", f"Не удалось сохранить: {str(e)}")
+    
+    def create_svg_file(self, filename):
+        """Создание SVG файла"""
+        # Получаем размеры холста
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        
+        # Создаем корневой SVG элемент
+        svg_root = ET.Element("svg", {
+            "xmlns": "http://www.w3.org/2000/svg",
+            "width": str(canvas_width),
+            "height": str(canvas_height),
+            "viewBox": f"0 0 {canvas_width} {canvas_height}"
+        })
+        
+        # Добавляем объекты в обратном порядке (снизу вверх)
+        for obj in reversed(self.objects):
+            obj_type = self.canvas.type(obj)
+            coords = self.canvas.coords(obj)
+            
+            if obj_type == "line" and len(coords) >= 4:
+                # Проверяем, это простая линия или кривая
+                if len(coords) == 4:
+                    # Простая линия
+                    line_elem = ET.SubElement(svg_root, "line", {
+                        "x1": str(coords[0]),
+                        "y1": str(coords[1]),
+                        "x2": str(coords[2]),
+                        "y2": str(coords[3]),
+                        "stroke": self.canvas.itemcget(obj, "fill"),
+                        "stroke-width": self.canvas.itemcget(obj, "width")
+                    })
+                else:
+                    # Кривая - используем полилайн
+                    points = " ".join([f"{coords[i]},{coords[i+1]}" for i in range(0, len(coords), 2)])
+                    polyline_elem = ET.SubElement(svg_root, "polyline", {
+                        "points": points,
+                        "stroke": self.canvas.itemcget(obj, "fill"),
+                        "stroke-width": self.canvas.itemcget(obj, "width"),
+                        "fill": "none"
+                    })
+            
+            elif obj_type == "rectangle" and len(coords) >= 4:
+                rect_elem = ET.SubElement(svg_root, "rect", {
+                    "x": str(min(coords[0], coords[2])),
+                    "y": str(min(coords[1], coords[3])),
+                    "width": str(abs(coords[2] - coords[0])),
+                    "height": str(abs(coords[3] - coords[1])),
+                    "stroke": self.canvas.itemcget(obj, "outline"),
+                    "stroke-width": self.canvas.itemcget(obj, "width"),
+                    "fill": self.canvas.itemcget(obj, "fill")
+                })
+            
+            elif obj_type == "oval" and len(coords) >= 4:
+                ellipse_elem = ET.SubElement(svg_root, "ellipse", {
+                    "cx": str((coords[0] + coords[2]) / 2),
+                    "cy": str((coords[1] + coords[3]) / 2),
+                    "rx": str(abs(coords[2] - coords[0]) / 2),
+                    "ry": str(abs(coords[3] - coords[1]) / 2),
+                    "stroke": self.canvas.itemcget(obj, "outline"),
+                    "stroke-width": self.canvas.itemcget(obj, "width"),
+                    "fill": self.canvas.itemcget(obj, "fill")
+                })
+        
+        # Записываем SVG в файл
+        tree = ET.ElementTree(svg_root)
+        tree.write(filename, encoding="utf-8", xml_declaration=True)
+
+root = tk.Tk()
+app = VectorEditor(root)
+root.mainloop()

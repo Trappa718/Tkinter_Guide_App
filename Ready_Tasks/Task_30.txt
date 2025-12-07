@@ -1,0 +1,481 @@
+import tkinter as tk
+from tkinter import ttk, scrolledtext, filedialog, messagebox
+import subprocess
+import os
+import sys
+from datetime import datetime
+
+class PythonIDE:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Python IDE")
+        self.root.geometry("1200x800")
+        
+        self.current_file = None
+        self.unsaved_changes = False
+        self.breakpoints = set()
+        
+        self.create_widgets()
+        self.setup_editor()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Главное меню
+        self.create_menu()
+        
+        # Главный фрейм
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Панель вкладок для файлов
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Создаем начальную вкладку
+        self.create_new_tab()
+        
+        # Нижняя панель
+        self.create_bottom_panel(main_frame)
+        
+        # Боковая панель
+        self.create_sidebar(main_frame)
+    
+    def create_menu(self):
+        """Создание меню"""
+        menubar = tk.Menu(self.root)
+        
+        # Меню Файл
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Новый", command=self.new_file, accelerator="Ctrl+N")
+        file_menu.add_command(label="Открыть", command=self.open_file, accelerator="Ctrl+O")
+        file_menu.add_command(label="Сохранить", command=self.save_file, accelerator="Ctrl+S")
+        file_menu.add_command(label="Сохранить как", command=self.save_as_file)
+        file_menu.add_separator()
+        file_menu.add_command(label="Выход", command=self.root.quit)
+        menubar.add_cascade(label="Файл", menu=file_menu)
+        
+        # Меню Правка
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        edit_menu.add_command(label="Отменить", command=self.undo, accelerator="Ctrl+Z")
+        edit_menu.add_command(label="Повторить", command=self.redo, accelerator="Ctrl+Y")
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Вырезать", command=self.cut, accelerator="Ctrl+X")
+        edit_menu.add_command(label="Копировать", command=self.copy, accelerator="Ctrl+C")
+        edit_menu.add_command(label="Вставить", command=self.paste, accelerator="Ctrl+V")
+        menubar.add_cascade(label="Правка", menu=edit_menu)
+        
+        # Меню Выполнение
+        run_menu = tk.Menu(menubar, tearoff=0)
+        run_menu.add_command(label="Запуск", command=self.run_code, accelerator="F5")
+        run_menu.add_command(label="Отладка", command=self.debug_code, accelerator="F6")
+        run_menu.add_command(label="Остановить", command=self.stop_execution)
+        menubar.add_cascade(label="Выполнение", menu=run_menu)
+        
+        # Меню Вид
+        view_menu = tk.Menu(menubar, tearoff=0)
+        view_menu.add_command(label="Терминал", command=self.toggle_terminal)
+        view_menu.add_command(label="Файловый браузер", command=self.toggle_file_browser)
+        menubar.add_cascade(label="Вид", menu=view_menu)
+        
+        self.root.config(menu=menubar)
+        
+        # Привязки клавиш
+        self.root.bind("<Control-n>", lambda e: self.new_file())
+        self.root.bind("<Control-o>", lambda e: self.open_file())
+        self.root.bind("<Control-s>", lambda e: self.save_file())
+        self.root.bind("<F5>", lambda e: self.run_code())
+        self.root.bind("<F6>", lambda e: self.debug_code())
+    
+    def create_new_tab(self, filename="Новый файл.py"):
+        """Создание новой вкладки редактора"""
+        tab_frame = tk.Frame(self.notebook)
+        
+        # Вертикальная полоса прокрутки
+        v_scrollbar = tk.Scrollbar(tab_frame)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Горизонтальная полоса прокрутки
+        h_scrollbar = tk.Scrollbar(tab_frame, orient=tk.HORIZONTAL)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Текстовый редактор
+        text_widget = scrolledtext.ScrolledText(
+            tab_frame,
+            wrap=tk.NONE,
+            yscrollcommand=v_scrollbar.set,
+            xscrollcommand=h_scrollbar.set,
+            font=("Consolas", 12),
+            undo=True
+        )
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Настраиваем прокрутки
+        v_scrollbar.config(command=text_widget.yview)
+        h_scrollbar.config(command=text_widget.xview)
+        
+        # Добавляем вкладку
+        self.notebook.add(tab_frame, text=filename)
+        self.notebook.select(tab_frame)
+        
+        # Привязываем события
+        text_widget.bind("<KeyRelease>", self.on_text_modified)
+        text_widget.bind("<Button-1>", self.on_click)
+        
+        return text_widget
+    
+    def setup_editor(self):
+        """Настройка редактора"""
+        # В реальной IDE здесь бы настраивалась подсветка синтаксиса
+        pass
+    
+    def create_bottom_panel(self, parent):
+        """Создание нижней панели"""
+        bottom_panel = tk.Frame(parent)
+        bottom_panel.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        # Терминал
+        terminal_label = tk.Label(bottom_panel, text="Терминал", bg="gray", fg="white")
+        terminal_label.pack(fill=tk.X)
+        
+        self.terminal_text = scrolledtext.ScrolledText(bottom_panel, height=8, 
+                                                      font=("Consolas", 10))
+        self.terminal_text.pack(fill=tk.X)
+        self.terminal_text.config(state=tk.DISABLED)
+        
+        # Статусная строка
+        self.status_var = tk.StringVar(value="Готов")
+        status_bar = tk.Label(parent, textvariable=self.status_var, 
+                             relief=tk.SUNKEN, anchor=tk.W)
+        status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+    
+    def create_sidebar(self, parent):
+        """Создание боковой панели"""
+        sidebar = tk.Frame(parent, width=200, bg="lightgray")
+        sidebar.pack(fill=tk.Y, side=tk.LEFT)
+        sidebar.pack_propagate(False)
+        
+        # Файловый браузер
+        file_frame = tk.Frame(sidebar)
+        file_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        tk.Label(file_frame, text="Файлы", font=("Arial", 10, "bold")).pack(anchor=tk.W)
+        
+        self.file_tree = ttk.Treeview(file_frame, show="tree", height=15)
+        self.file_tree.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Кнопки файлового браузера
+        file_btn_frame = tk.Frame(file_frame)
+        file_btn_frame.pack(fill=tk.X)
+        
+        tk.Button(file_btn_frame, text="Обновить", 
+                 command=self.refresh_file_tree).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Button(file_btn_frame, text="Открыть папку", 
+                 command=self.open_folder).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Отладка
+        debug_frame = tk.Frame(sidebar)
+        debug_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        tk.Label(debug_frame, text="Отладка", font=("Arial", 10, "bold")).pack(anchor=tk.W)
+        
+        debug_btn_frame = tk.Frame(debug_frame)
+        debug_btn_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Button(debug_btn_frame, text="Добавить точку останова", 
+                 command=self.add_breakpoint).pack(fill=tk.X)
+        tk.Button(debug_btn_frame, text="Удалить точку останова", 
+                 command=self.remove_breakpoint).pack(fill=tk.X)
+        
+        # Список точек останова
+        tk.Label(debug_frame, text="Точки останова:").pack(anchor=tk.W)
+        self.breakpoints_listbox = tk.Listbox(debug_frame, height=6)
+        self.breakpoints_listbox.pack(fill=tk.X)
+    
+    def get_current_editor(self):
+        """Получение текущего редактора"""
+        current_tab = self.notebook.select()
+        if current_tab:
+            tab_widget = self.notebook.nametowidget(current_tab)
+            for widget in tab_widget.winfo_children():
+                if isinstance(widget, scrolledtext.ScrolledText):
+                    return widget
+        return None
+    
+    def on_text_modified(self, event):
+        """Обработка изменения текста"""
+        self.unsaved_changes = True
+        current_tab = self.notebook.select()
+        tab_text = self.notebook.tab(current_tab, "text")
+        
+        if not tab_text.startswith("*"):
+            self.notebook.tab(current_tab, text="*" + tab_text)
+    
+    def on_click(self, event):
+        """Обработка клика для точек останова"""
+        editor = self.get_current_editor()
+        if editor:
+            line = editor.index(f"@{event.x},{event.y}").split(".")[0]
+            self.toggle_breakpoint(line)
+    
+    def new_file(self):
+        """Создание нового файла"""
+        editor = self.create_new_tab()
+        self.current_file = None
+        self.status_var.set("Создан новый файл")
+    
+    def open_file(self):
+        """Открытие файла"""
+        filename = filedialog.askopenfilename(
+            filetypes=[
+                ("Python files", "*.py"),
+                ("Text files", "*.txt"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if filename:
+            try:
+                with open(filename, 'r', encoding='utf-8') as file:
+                    content = file.read()
+                
+                editor = self.create_new_tab(os.path.basename(filename))
+                editor.delete(1.0, tk.END)
+                editor.insert(1.0, content)
+                
+                self.current_file = filename
+                self.unsaved_changes = False
+                self.status_var.set(f"Открыт файл: {filename}")
+                
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось открыть файл: {str(e)}")
+    
+    def save_file(self):
+        """Сохранение файла"""
+        if self.current_file:
+            try:
+                editor = self.get_current_editor()
+                content = editor.get(1.0, tk.END)
+                
+                with open(self.current_file, 'w', encoding='utf-8') as file:
+                    file.write(content)
+                
+                self.unsaved_changes = False
+                current_tab = self.notebook.select()
+                tab_text = self.notebook.tab(current_tab, "text")
+                if tab_text.startswith("*"):
+                    self.notebook.tab(current_tab, text=tab_text[1:])
+                
+                self.status_var.set(f"Файл сохранен: {self.current_file}")
+                
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось сохранить файл: {str(e)}")
+        else:
+            self.save_as_file()
+    
+    def save_as_file(self):
+        """Сохранение файла как"""
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".py",
+            filetypes=[
+                ("Python files", "*.py"),
+                ("Text files", "*.txt"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if filename:
+            self.current_file = filename
+            self.save_file()
+    
+    def undo(self):
+        """Отмена действия"""
+        editor = self.get_current_editor()
+        if editor:
+            try:
+                editor.edit_undo()
+            except:
+                pass
+    
+    def redo(self):
+        """Повтор действия"""
+        editor = self.get_current_editor()
+        if editor:
+            try:
+                editor.edit_redo()
+            except:
+                pass
+    
+    def cut(self):
+        """Вырезание"""
+        editor = self.get_current_editor()
+        if editor:
+            try:
+                editor.event_generate("<<Cut>>")
+            except:
+                pass
+    
+    def copy(self):
+        """Копирование"""
+        editor = self.get_current_editor()
+        if editor:
+            try:
+                editor.event_generate("<<Copy>>")
+            except:
+                pass
+    
+    def paste(self):
+        """Вставка"""
+        editor = self.get_current_editor()
+        if editor:
+            try:
+                editor.event_generate("<<Paste>>")
+            except:
+                pass
+    
+    def run_code(self):
+        """Запуск кода"""
+        if self.unsaved_changes:
+            self.save_file()
+        
+        if self.current_file:
+            try:
+                self.terminal_text.config(state=tk.NORMAL)
+                self.terminal_text.delete(1.0, tk.END)
+                self.terminal_text.insert(tk.END, f"Запуск: {self.current_file}\n")
+                self.terminal_text.insert(tk.END, "-" * 50 + "\n")
+                self.terminal_text.config(state=tk.DISABLED)
+                
+                # Запускаем в отдельном потоке
+                run_thread = threading.Thread(target=self._run_code_thread)
+                run_thread.daemon = True
+                run_thread.start()
+                
+            except Exception as e:
+                self.log_terminal(f"Ошибка запуска: {str(e)}")
+        else:
+            messagebox.showwarning("Внимание", "Сначала сохраните файл")
+    
+    def _run_code_thread(self):
+        """Поток выполнения кода"""
+        try:
+            result = subprocess.run(
+                [sys.executable, self.current_file],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            self.root.after(0, lambda: self._display_run_result(result))
+            
+        except subprocess.TimeoutExpired:
+            self.root.after(0, lambda: self.log_terminal("Таймаут выполнения (30 секунд)"))
+        except Exception as e:
+            self.root.after(0, lambda: self.log_terminal(f"Ошибка выполнения: {str(e)}"))
+    
+    def _display_run_result(self, result):
+        """Отображение результата выполнения"""
+        self.log_terminal(result.stdout)
+        if result.stderr:
+            self.log_terminal(f"Ошибки:\n{result.stderr}")
+        self.log_terminal(f"Код возврата: {result.returncode}")
+    
+    def debug_code(self):
+        """Запуск отладки"""
+        self.log_terminal("Режим отладки (упрощенный)")
+        self.log_terminal("Точки останова:")
+        for bp in self.breakpoints:
+            self.log_terminal(f"  Строка {bp}")
+    
+    def stop_execution(self):
+        """Остановка выполнения"""
+        self.log_terminal("Выполнение остановлено")
+    
+    def toggle_terminal(self):
+        """Переключение видимости терминала"""
+        # В реальной IDE здесь бы переключалась видимость панели
+        pass
+    
+    def toggle_file_browser(self):
+        """Переключение видимости файлового браузера"""
+        # В реальной IDE здесь бы переключалась видимость боковой панели
+        pass
+    
+    def refresh_file_tree(self):
+        """Обновление дерева файлов"""
+        self.file_tree.delete(*self.file_tree.get_children())
+        
+        current_dir = os.getcwd()
+        if self.current_file:
+            current_dir = os.path.dirname(self.current_file)
+        
+        self._populate_file_tree(current_dir, "")
+    
+    def _populate_file_tree(self, path, parent):
+        """Заполнение дерева файлов"""
+        try:
+            for item in os.listdir(path):
+                item_path = os.path.join(path, item)
+                if os.path.isdir(item_path) and not item.startswith('.'):
+                    node = self.file_tree.insert(parent, "end", text=item, values=(item_path,))
+                    self._populate_file_tree(item_path, node)
+                elif item.endswith('.py'):
+                    self.file_tree.insert(parent, "end", text=item, values=(item_path,))
+        except PermissionError:
+            pass
+    
+    def open_folder(self):
+        """Открытие папки"""
+        folder = filedialog.askdirectory()
+        if folder:
+            os.chdir(folder)
+            self.refresh_file_tree()
+    
+    def add_breakpoint(self):
+        """Добавление точки останова"""
+        editor = self.get_current_editor()
+        if editor:
+            try:
+                line = editor.index(tk.INSERT).split('.')[0]
+                self.breakpoints.add(int(line))
+                self.update_breakpoints_list()
+                self.log_terminal(f"Добавлена точка останова на строке {line}")
+            except:
+                pass
+    
+    def remove_breakpoint(self):
+        """Удаление точки останова"""
+        selection = self.breakpoints_listbox.curselection()
+        if selection:
+            line = self.breakpoints_listbox.get(selection[0])
+            line_num = int(line.split()[-1])
+            self.breakpoints.discard(line_num)
+            self.update_breakpoints_list()
+            self.log_terminal(f"Удалена точка останова на строке {line_num}")
+    
+    def toggle_breakpoint(self, line):
+        """Переключение точки останова по клику"""
+        line_num = int(line)
+        if line_num in self.breakpoints:
+            self.breakpoints.discard(line_num)
+        else:
+            self.breakpoints.add(line_num)
+        self.update_breakpoints_list()
+    
+    def update_breakpoints_list(self):
+        """Обновление списка точек останова"""
+        self.breakpoints_listbox.delete(0, tk.END)
+        for line in sorted(self.breakpoints):
+            self.breakpoints_listbox.insert(tk.END, f"Строка {line}")
+    
+    def log_terminal(self, message):
+        """Добавление сообщения в терминал"""
+        self.terminal_text.config(state=tk.NORMAL)
+        self.terminal_text.insert(tk.END, message + "\n")
+        self.terminal_text.see(tk.END)
+        self.terminal_text.config(state=tk.DISABLED)
+
+import threading
+
+root = tk.Tk()
+app = PythonIDE(root)
+root.mainloop()

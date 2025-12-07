@@ -1,0 +1,355 @@
+import tkinter as tk
+import math
+import numpy as np
+from PIL import Image, ImageTk
+
+class ThreeDViewer:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("3D Viewer")
+        self.root.geometry("800x600")
+        
+        # Параметры 3D
+        self.vertices = []
+        self.faces = []
+        self.rotation_x = 0
+        self.rotation_y = 0
+        self.rotation_z = 0
+        self.scale = 1.0
+        self.translation = [0, 0, 0]
+        
+        # Параметры камеры
+        self.camera_distance = 5
+        self.fov = 60
+        
+        self.dragging = False
+        self.last_mouse_x = 0
+        self.last_mouse_y = 0
+        
+        self.create_widgets()
+        self.load_cube()  # Загружаем тестовый куб
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Главный фрейм
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Панель управления
+        control_frame = tk.Frame(main_frame)
+        control_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Кнопки загрузки
+        tk.Button(control_frame, text="Загрузить OBJ", 
+                 command=self.load_obj_file).pack(side=tk.LEFT, padx=5)
+        tk.Button(control_frame, text="Сброс", 
+                 command=self.reset_view).pack(side=tk.LEFT, padx=5)
+        
+        # Элементы управления камерой
+        camera_frame = tk.Frame(control_frame)
+        camera_frame.pack(side=tk.LEFT, padx=20)
+        
+        tk.Label(camera_frame, text="Расстояние:").pack(side=tk.LEFT)
+        self.distance_var = tk.DoubleVar(value=self.camera_distance)
+        distance_scale = tk.Scale(camera_frame, from_=1, to=20, resolution=0.1,
+                                 orient=tk.HORIZONTAL, variable=self.distance_var,
+                                 command=self.update_camera_distance, length=100)
+        distance_scale.pack(side=tk.LEFT, padx=5)
+        
+        # Элементы управления освещением
+        light_frame = tk.Frame(control_frame)
+        light_frame.pack(side=tk.RIGHT)
+        
+        tk.Button(light_frame, text="Экспорт скриншота", 
+                 command=self.export_screenshot).pack(side=tk.LEFT, padx=5)
+        
+        # Холст для 3D отображения
+        self.canvas = tk.Canvas(main_frame, bg="black", cursor="crosshair")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Привязки событий мыши
+        self.canvas.bind("<Button-1>", self.start_drag)
+        self.canvas.bind("<B1-Motion>", self.drag)
+        self.canvas.bind("<ButtonRelease-1>", self.stop_drag)
+        self.canvas.bind("<MouseWheel>", self.zoom)
+        
+        # Отображение информации
+        self.info_label = tk.Label(main_frame, text="", fg="white", bg="black")
+        self.info_label.pack(anchor=tk.W)
+        
+        self.update_info()
+    
+    def load_cube(self):
+        """Загрузка тестового куба"""
+        # Вершины куба
+        self.vertices = np.array([
+            [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],  # задняя грань
+            [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]       # передняя грань
+        ])
+        
+        # Грани куба (индексы вершин)
+        self.faces = [
+            [0, 1, 2, 3],  # задняя
+            [4, 5, 6, 7],  # передняя
+            [0, 1, 5, 4],  # нижняя
+            [2, 3, 7, 6],  # верхняя
+            [0, 3, 7, 4],  # левая
+            [1, 2, 6, 5]   # правая
+        ]
+        
+        self.render_scene()
+    
+    def load_obj_file(self):
+        """Загрузка OBJ файла"""
+        from tkinter import filedialog
+        
+        filename = filedialog.askopenfilename(
+            filetypes=[("OBJ files", "*.obj"), ("All files", "*.*")]
+        )
+        
+        if filename:
+            try:
+                self.load_obj(filename)
+                self.render_scene()
+            except Exception as e:
+                print(f"Ошибка загрузки OBJ: {e}")
+    
+    def load_obj(self, filename):
+        """Парсинг OBJ файла"""
+        vertices = []
+        faces = []
+        
+        with open(filename, 'r') as file:
+            for line in file:
+                if line.startswith('v '):  # вершина
+                    parts = line.strip().split()
+                    if len(parts) >= 4:
+                        vertex = [float(parts[1]), float(parts[2]), float(parts[3])]
+                        vertices.append(vertex)
+                elif line.startswith('f '):  # грань
+                    parts = line.strip().split()
+                    face = []
+                    for part in parts[1:]:
+                        # OBJ использует формат vertex/texture/normal
+                        vertex_index = part.split('/')[0]
+                        if vertex_index:
+                            face.append(int(vertex_index) - 1)  # OBJ индексы с 1
+                    if len(face) >= 3:
+                        faces.append(face)
+        
+        if vertices:
+            self.vertices = np.array(vertices)
+            self.faces = faces
+            self.update_info()
+    
+    def rotation_matrix_x(self, angle):
+        """Матрица поворота вокруг X"""
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        return np.array([
+            [1, 0, 0],
+            [0, cos_a, -sin_a],
+            [0, sin_a, cos_a]
+        ])
+    
+    def rotation_matrix_y(self, angle):
+        """Матрица поворота вокруг Y"""
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        return np.array([
+            [cos_a, 0, sin_a],
+            [0, 1, 0],
+            [-sin_a, 0, cos_a]
+        ])
+    
+    def rotation_matrix_z(self, angle):
+        """Матрица поворота вокруг Z"""
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        return np.array([
+            [cos_a, -sin_a, 0],
+            [sin_a, cos_a, 0],
+            [0, 0, 1]
+        ])
+    
+    def project_point(self, point):
+        """Проекция 3D точки в 2D"""
+        # Применяем преобразования
+        point = point * self.scale
+        
+        # Повороты
+        point = np.dot(point, self.rotation_matrix_x(self.rotation_x).T)
+        point = np.dot(point, self.rotation_matrix_y(self.rotation_y).T)
+        point = np.dot(point, self.rotation_matrix_z(self.rotation_z).T)
+        
+        # Сдвиг
+        point = point + np.array(self.translation)
+        
+        # Перспективная проекция
+        x, y, z = point
+        if z + self.camera_distance == 0:
+            z = 0.001  # Избегаем деления на ноль
+        
+        factor = self.fov / (z + self.camera_distance)
+        x_proj = x * factor
+        y_proj = y * factor
+        
+        return x_proj, y_proj, z
+    
+    def render_scene(self):
+        """Отрисовка сцены"""
+        if not self.vertices.size or not self.faces:
+            return
+        
+        self.canvas.delete("all")
+        
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        
+        if canvas_width <= 1:
+            return
+        
+        center_x = canvas_width // 2
+        center_y = canvas_height // 2
+        
+        # Собираем все спроецированные точки
+        projected_points = []
+        depths = []
+        
+        for vertex in self.vertices:
+            x_proj, y_proj, z = self.project_point(vertex)
+            screen_x = center_x + int(x_proj * 100)
+            screen_y = center_y - int(y_proj * 100)  # Инвертируем Y для экранных координат
+            projected_points.append((screen_x, screen_y))
+            depths.append(z)
+        
+        # Сортируем грани по глубине (простой алгоритм painter's)
+        face_depths = []
+        for face in self.faces:
+            if len(face) >= 3:
+                # Средняя глубина грани
+                depth = sum(depths[i] for i in face) / len(face)
+                face_depths.append((depth, face))
+        
+        # Сортируем от дальних к ближним
+        face_depths.sort(key=lambda x: x[0])
+        
+        # Рисуем грани
+        for depth, face in face_depths:
+            if len(face) >= 3:
+                points = [projected_points[i] for i in face]
+                
+                # Вычисляем цвет в зависимости от глубины
+                color_intensity = max(0, min(255, int(128 + depth * 20)))
+                color = f'#{color_intensity:02x}{color_intensity:02x}{color_intensity:02x}'
+                
+                # Рисуем грань
+                self.canvas.create_polygon(points, fill=color, outline="white", width=1)
+        
+        # Рисуем оси координат
+        self.draw_axes(center_x, center_y)
+    
+    def draw_axes(self, center_x, center_y):
+        """Рисование осей координат"""
+        # Ось X (красная)
+        x_end = self.project_point(np.array([2, 0, 0]))
+        self.canvas.create_line(center_x, center_y, 
+                               center_x + int(x_end[0] * 100), 
+                               center_y - int(x_end[1] * 100),
+                               fill="red", width=2, arrow=tk.LAST)
+        
+        # Ось Y (зеленая)
+        y_end = self.project_point(np.array([0, 2, 0]))
+        self.canvas.create_line(center_x, center_y, 
+                               center_x + int(y_end[0] * 100), 
+                               center_y - int(y_end[1] * 100),
+                               fill="green", width=2, arrow=tk.LAST)
+        
+        # Ось Z (синяя)
+        z_end = self.project_point(np.array([0, 0, 2]))
+        self.canvas.create_line(center_x, center_y, 
+                               center_x + int(z_end[0] * 100), 
+                               center_y - int(z_end[1] * 100),
+                               fill="blue", width=2, arrow=tk.LAST)
+    
+    def start_drag(self, event):
+        """Начало перетаскивания"""
+        self.dragging = True
+        self.last_mouse_x = event.x
+        self.last_mouse_y = event.y
+    
+    def drag(self, event):
+        """Перетаскивание для вращения"""
+        if self.dragging:
+            dx = event.x - self.last_mouse_x
+            dy = event.y - self.last_mouse_y
+            
+            self.rotation_y += dx * 0.01
+            self.rotation_x += dy * 0.01
+            
+            self.last_mouse_x = event.x
+            self.last_mouse_y = event.y
+            
+            self.render_scene()
+    
+    def stop_drag(self, event):
+        """Окончание перетаскивания"""
+        self.dragging = False
+    
+    def zoom(self, event):
+        """Масштабирование колесиком мыши"""
+        if event.delta > 0:
+            self.scale *= 1.1
+        else:
+            self.scale /= 1.1
+        
+        self.render_scene()
+    
+    def update_camera_distance(self, value):
+        """Обновление расстояния камеры"""
+        self.camera_distance = float(value)
+        self.render_scene()
+    
+    def reset_view(self):
+        """Сброс вида"""
+        self.rotation_x = 0
+        self.rotation_y = 0
+        self.rotation_z = 0
+        self.scale = 1.0
+        self.translation = [0, 0, 0]
+        self.camera_distance = 5
+        
+        self.distance_var.set(self.camera_distance)
+        self.render_scene()
+    
+    def export_screenshot(self):
+        """Экспорт скриншота"""
+        from tkinter import filedialog
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+        )
+        
+        if filename:
+            try:
+                # Создаем изображение из canvas
+                x = self.root.winfo_rootx() + self.canvas.winfo_x()
+                y = self.root.winfo_rooty() + self.canvas.winfo_y()
+                x1 = x + self.canvas.winfo_width()
+                y1 = y + self.canvas.winfo_height()
+                
+                from PIL import ImageGrab
+                ImageGrab.grab().crop((x, y, x1, y1)).save(filename)
+                
+            except Exception as e:
+                print(f"Ошибка экспорта: {e}")
+    
+    def update_info(self):
+        """Обновление информации о модели"""
+        info = f"Вершин: {len(self.vertices)} | Граней: {len(self.faces)}"
+        self.info_label.config(text=info)
+
+root = tk.Tk()
+app = ThreeDViewer(root)
+root.mainloop()

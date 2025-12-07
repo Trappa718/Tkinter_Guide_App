@@ -1,0 +1,27 @@
+import tkinter as tk
+
+def update_counter():
+    """Функция для обновления счетчика"""
+    global count
+    count += 1
+    counter_label.config(text=f"Счетчик: {count}")
+
+# Создаем главное окно
+root = tk.Tk()
+root.title("Кнопка-счетчик")
+root.geometry("300x200")
+
+# Переменная для хранения счетчика
+count = 0
+
+# Создаем метку для отображения счетчика
+counter_label = tk.Label(root, text="Счетчик: 0", font=("Arial", 16))
+counter_label.pack(pady=20)
+
+# Создаем кнопку
+click_button = tk.Button(root, text="Нажать", command=update_counter, 
+                        font=("Arial", 14), bg="lightblue")
+click_button.pack(pady=10)
+
+# Запускаем главный цикл
+root.mainloop()

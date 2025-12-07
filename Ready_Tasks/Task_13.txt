@@ -1,0 +1,210 @@
+import tkinter as tk
+from tkinter import messagebox
+import requests
+import json
+
+class WeatherApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Погодное приложение")
+        self.root.geometry("400x500")
+        
+        self.api_key = "your_api_key_here"  # Нужно получить на openweathermap.org
+        self.last_city = ""
+        
+        self.create_widgets()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Заголовок
+        title_label = tk.Label(self.root, text="Погода", 
+                              font=("Arial", 20, "bold"))
+        title_label.pack(pady=20)
+        
+        # Поле ввода города
+        input_frame = tk.Frame(self.root)
+        input_frame.pack(pady=10)
+        
+        tk.Label(input_frame, text="Город:", font=("Arial", 12)).pack(side=tk.LEFT)
+        self.city_var = tk.StringVar()
+        self.city_entry = tk.Entry(input_frame, textvariable=self.city_var, 
+                                  font=("Arial", 12), width=20)
+        self.city_entry.pack(side=tk.LEFT, padx=10)
+        self.city_entry.bind("<Return>", lambda e: self.get_weather())
+        
+        # Кнопка получения погоды
+        self.get_weather_btn = tk.Button(self.root, text="Получить погоду", 
+                                        command=self.get_weather, font=("Arial", 12),
+                                        bg="lightblue")
+        self.get_weather_btn.pack(pady=10)
+        
+        # Разделитель
+        separator = tk.Frame(self.root, height=2, bg="gray")
+        separator.pack(fill=tk.X, padx=20, pady=20)
+        
+        # Область для отображения погоды
+        self.weather_frame = tk.Frame(self.root)
+        self.weather_frame.pack(fill=tk.BOTH, expand=True, padx=20)
+        
+        # Изначально скрываем погодные данные
+        self.hide_weather_data()
+    
+    def hide_weather_data(self):
+        """Скрытие данных о погоде"""
+        for widget in self.weather_frame.winfo_children():
+            widget.destroy()
+        
+        message_label = tk.Label(self.weather_frame, text="Введите город для получения погоды",
+                                font=("Arial", 12), fg="gray")
+        message_label.pack(pady=50)
+    
+    def show_weather_data(self, weather_data):
+        """Отображение данных о погоде"""
+        for widget in self.weather_frame.winfo_children():
+            widget.destroy()
+        
+        # Название города
+        city_label = tk.Label(self.weather_frame, text=weather_data["city"], 
+                             font=("Arial", 18, "bold"))
+        city_label.pack(pady=10)
+        
+        # Температура
+        temp_label = tk.Label(self.weather_frame, 
+                             text=f"{weather_data['temperature']}°C",
+                             font=("Arial", 32, "bold"))
+        temp_label.pack(pady=10)
+        
+        # Описание погоды
+        desc_label = tk.Label(self.weather_frame, 
+                             text=weather_data["description"].title(),
+                             font=("Arial", 14))
+        desc_label.pack(pady=5)
+        
+        # Детальная информация
+        details_frame = tk.Frame(self.weather_frame)
+        details_frame.pack(pady=20)
+        
+        # Влажность
+        humidity_frame = tk.Frame(details_frame)
+        humidity_frame.pack(pady=5)
+        tk.Label(humidity_frame, text="Влажность:", font=("Arial", 10)).pack(side=tk.LEFT)
+        tk.Label(humidity_frame, text=f"{weather_data['humidity']}%", 
+                font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        
+        # Давление
+        pressure_frame = tk.Frame(details_frame)
+        pressure_frame.pack(pady=5)
+        tk.Label(pressure_frame, text="Давление:", font=("Arial", 10)).pack(side=tk.LEFT)
+        tk.Label(pressure_frame, text=f"{weather_data['pressure']} hPa", 
+                font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        
+        # Ветер
+        wind_frame = tk.Frame(details_frame)
+        wind_frame.pack(pady=5)
+        tk.Label(wind_frame, text="Ветер:", font=("Arial", 10)).pack(side=tk.LEFT)
+        tk.Label(wind_frame, text=f"{weather_data['wind_speed']} м/с", 
+                font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        
+        # Иконка погоды (эмодзи)
+        weather_icon = self.get_weather_icon(weather_data["description"])
+        icon_label = tk.Label(self.weather_frame, text=weather_icon, 
+                             font=("Arial", 48))
+        icon_label.pack(pady=10)
+    
+    def get_weather_icon(self, description):
+        """Получение эмодзи для погоды"""
+        description = description.lower()
+        if "rain" in description:
+            return "🌧️"
+        elif "cloud" in description:
+            return "☁️"
+        elif "sun" in description or "clear" in description:
+            return "☀️"
+        elif "snow" in description:
+            return "❄️"
+        elif "storm" in description:
+            return "⛈️"
+        elif "fog" in description or "mist" in description:
+            return "🌫️"
+        else:
+            return "🌈"
+    
+    def get_weather(self):
+        """Получение данных о погоде с API"""
+        city = self.city_var.get().strip()
+        if not city:
+            messagebox.showerror("Ошибка", "Введите название города")
+            return
+        
+        try:
+            # Эмуляция API запроса (в реальности нужно использовать реальный API ключ)
+            weather_data = self.mock_weather_api(city)
+            
+            if weather_data:
+                self.show_weather_data(weather_data)
+                self.last_city = city
+            else:
+                messagebox.showerror("Ошибка", "Город не найден")
+                
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось получить данные: {str(e)}")
+    
+    def mock_weather_api(self, city):
+        """
+        Эмуляция API погоды
+        В реальном приложении здесь должен быть запрос к OpenWeatherMap API
+        """
+        # Примерные данные для демонстрации
+        mock_data = {
+            "москва": {
+                "city": "Москва",
+                "temperature": 15,
+                "description": "облачно",
+                "humidity": 65,
+                "pressure": 1013,
+                "wind_speed": 3.5
+            },
+            "санкт-петербург": {
+                "city": "Санкт-Петербург", 
+                "temperature": 12,
+                "description": "небольшой дождь",
+                "humidity": 80,
+                "pressure": 1005,
+                "wind_speed": 4.2
+            },
+            "сочи": {
+                "city": "Сочи",
+                "temperature": 22,
+                "description": "солнечно",
+                "humidity": 55,
+                "pressure": 1015,
+                "wind_speed": 2.1
+            }
+        }
+        
+        return mock_data.get(city.lower())
+
+# Для реального использования нужно раскомментировать этот код:
+"""
+def real_weather_api(self, city):
+    # Реальный запрос к OpenWeatherMap API
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={self.api_key}&units=metric&lang=ru"
+    
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        return {
+            "city": data["name"],
+            "temperature": round(data["main"]["temp"]),
+            "description": data["weather"][0]["description"],
+            "humidity": data["main"]["humidity"],
+            "pressure": data["main"]["pressure"],
+            "wind_speed": data["wind"]["speed"]
+        }
+    else:
+        return None
+"""
+
+root = tk.Tk()
+app = WeatherApp(root)
+root.mainloop()

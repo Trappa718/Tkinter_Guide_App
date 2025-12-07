@@ -1,0 +1,294 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import csv
+import re
+
+class Spreadsheet:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Электронная таблица")
+        self.root.geometry("1000x600")
+        
+        self.rows = 100
+        self.cols = 26  # A-Z
+        self.data = {}
+        self.formulas = {}
+        
+        self.create_widgets()
+        self.create_spreadsheet()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Верхняя панель
+        toolbar = tk.Frame(self.root)
+        toolbar.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Поле формул
+        tk.Label(toolbar, text="Формула:").pack(side=tk.LEFT)
+        self.formula_var = tk.StringVar()
+        self.formula_entry = tk.Entry(toolbar, textvariable=self.formula_var, width=50)
+        self.formula_entry.pack(side=tk.LEFT, padx=5)
+        self.formula_entry.bind("<Return>", self.apply_formula)
+        
+        # Кнопки
+        tk.Button(toolbar, text="Применить", command=self.apply_formula).pack(side=tk.LEFT, padx=2)
+        tk.Button(toolbar, text="Очистить", command=self.clear_cell).pack(side=tk.LEFT, padx=2)
+        tk.Button(toolbar, text="Сохранить", command=self.save_file).pack(side=tk.LEFT, padx=2)
+        tk.Button(toolbar, text="Загрузить", command=self.load_file).pack(side=tk.LEFT, padx=2)
+        
+        # Основная область таблицы
+        table_frame = tk.Frame(self.root)
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Создаем Treeview для таблицы
+        self.tree = ttk.Treeview(table_frame, columns=[self.get_col_letter(i) for i in range(self.cols)], 
+                                show='headings', height=20)
+        
+        # Настраиваем колонки
+        for i in range(self.cols):
+            col_letter = self.get_col_letter(i)
+            self.tree.heading(col_letter, text=col_letter)
+            self.tree.column(col_letter, width=80)
+        
+        # Полосы прокрутки
+        v_scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        h_scrollbar = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
+        self.tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        # Размещаем элементы
+        self.tree.grid(row=0, column=0, sticky='nsew')
+        v_scrollbar.grid(row=0, column=1, sticky='ns')
+        h_scrollbar.grid(row=1, column=0, sticky='ew')
+        
+        table_frame.grid_rowconfigure(0, weight=1)
+        table_frame.grid_columnconfigure(0, weight=1)
+        
+        # Заполняем строки
+        for i in range(1, self.rows + 1):
+            self.tree.insert("", tk.END, iid=str(i), values=[""] * self.cols)
+        
+        # Привязки событий
+        self.tree.bind("<Double-1>", self.on_cell_double_click)
+        self.tree.bind("<<TreeviewSelect>>", self.on_cell_select)
+    
+    def get_col_letter(self, index):
+        """Получение буквы колонки по индексу (0->A, 1->B, ...)"""
+        return chr(65 + index)
+    
+    def get_col_index(self, letter):
+        """Получение индекса колонки по букве"""
+        return ord(letter.upper()) - 65
+    
+    def create_spreadsheet(self):
+        """Инициализация данных таблицы"""
+        for row in range(1, self.rows + 1):
+            for col in range(self.cols):
+                cell_id = f"{self.get_col_letter(col)}{row}"
+                self.data[cell_id] = ""
+                self.formulas[cell_id] = ""
+    
+    def on_cell_double_click(self, event):
+        """Обработка двойного клика по ячейке"""
+        item = self.tree.selection()[0]
+        column = self.tree.identify_column(event.x)
+        
+        if item and column != "#0":
+            col_index = int(column[1:]) - 1
+            cell_id = f"{self.get_col_letter(col_index)}{item}"
+            
+            # Создаем окно редактирования
+            self.create_edit_window(cell_id, item, col_index)
+    
+    def on_cell_select(self, event):
+        """Обработка выбора ячейки"""
+        selection = self.tree.selection()
+        if selection:
+            item = selection[0]
+            column = self.tree.focus_column()
+            
+            if column:
+                col_index = int(column[1:]) - 1
+                cell_id = f"{self.get_col_letter(col_index)}{item}"
+                
+                # Показываем формулу или значение в поле формул
+                if cell_id in self.formulas and self.formulas[cell_id]:
+                    self.formula_var.set(f"={self.formulas[cell_id]}")
+                else:
+                    self.formula_var.set(self.data.get(cell_id, ""))
+    
+    def create_edit_window(self, cell_id, row, col):
+        """Создание окна редактирования ячейки"""
+        edit_win = tk.Toplevel(self.root)
+        edit_win.title(f"Редактирование {cell_id}")
+        edit_win.geometry("400x200")
+        edit_win.transient(self.root)
+        edit_win.grab_set()
+        
+        tk.Label(edit_win, text=f"Ячейка: {cell_id}", font=("Arial", 12, "bold")).pack(pady=10)
+        
+        # Поле ввода
+        current_value = self.formulas[cell_id] if self.formulas[cell_id] else self.data[cell_id]
+        value_var = tk.StringVar(value=current_value)
+        entry = tk.Entry(edit_win, textvariable=value_var, width=50, font=("Arial", 12))
+        entry.pack(pady=10)
+        entry.focus_set()
+        
+        def save_cell():
+            """Сохранение значения ячейки"""
+            value = value_var.get().strip()
+            
+            if value.startswith('='):
+                # Это формула
+                self.formulas[cell_id] = value[1:]
+                result = self.evaluate_formula(value[1:], cell_id)
+                self.data[cell_id] = str(result) if result is not None else "#ERROR"
+            else:
+                # Простое значение
+                self.formulas[cell_id] = ""
+                self.data[cell_id] = value
+            
+            # Обновляем отображение
+            self.update_cell_display(row, col, self.data[cell_id])
+            edit_win.destroy()
+        
+        # Кнопки
+        btn_frame = tk.Frame(edit_win)
+        btn_frame.pack(pady=20)
+        
+        tk.Button(btn_frame, text="Сохранить", command=save_cell).pack(side=tk.LEFT, padx=10)
+        tk.Button(btn_frame, text="Отмена", command=edit_win.destroy).pack(side=tk.LEFT, padx=10)
+        
+        entry.bind("<Return>", lambda e: save_cell())
+    
+    def update_cell_display(self, row, col, value):
+        """Обновление отображения ячейки"""
+        current_values = list(self.tree.item(row, 'values'))
+        current_values[col] = value
+        self.tree.item(row, values=current_values)
+    
+    def apply_formula(self, event=None):
+        """Применение формулы из поля ввода"""
+        formula = self.formula_var.get().strip()
+        selection = self.tree.selection()
+        
+        if selection and formula:
+            item = selection[0]
+            column = self.tree.focus_column()
+            
+            if column:
+                col_index = int(column[1:]) - 1
+                cell_id = f"{self.get_col_letter(col_index)}{item}"
+                
+                if formula.startswith('='):
+                    self.formulas[cell_id] = formula[1:]
+                    result = self.evaluate_formula(formula[1:], cell_id)
+                    self.data[cell_id] = str(result) if result is not None else "#ERROR"
+                else:
+                    self.formulas[cell_id] = ""
+                    self.data[cell_id] = formula
+                
+                self.update_cell_display(item, col_index, self.data[cell_id])
+    
+    def evaluate_formula(self, formula, current_cell):
+        """Вычисление формулы с базовой безопасностью"""
+        try:
+            # Заменяем ссылки на ячейки их значениями
+            def replace_cell_ref(match):
+                cell_ref = match.group(0).upper()
+                if cell_ref in self.data:
+                    value = self.data[cell_ref]
+                    try:
+                        return str(float(value)) if value and value != "#ERROR" else "0"
+                    except ValueError:
+                        return "0"
+                return "0"
+            
+            # Ищем ссылки на ячейки (буква+цифры)
+            safe_formula = re.sub(r'[A-Z]+\d+', replace_cell_ref, formula.upper())
+            
+            # Безопасное вычисление - только базовые математические операции
+            allowed_chars = set('0123456789+-*/.() ')
+            if all(c in allowed_chars for c in safe_formula):
+                result = eval(safe_formula)
+                return round(result, 6) if isinstance(result, float) else result
+            else:
+                return "#ERROR"
+                
+        except:
+            return "#ERROR"
+    
+    def clear_cell(self):
+        """Очистка выбранной ячейки"""
+        selection = self.tree.selection()
+        if selection:
+            item = selection[0]
+            column = self.tree.focus_column()
+            
+            if column:
+                col_index = int(column[1:]) - 1
+                cell_id = f"{self.get_col_letter(col_index)}{item}"
+                
+                self.data[cell_id] = ""
+                self.formulas[cell_id] = ""
+                self.update_cell_display(item, col_index, "")
+                self.formula_var.set("")
+    
+    def save_file(self):
+        """Сохранение таблицы в CSV"""
+        filename = tk.filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if filename:
+            try:
+                with open(filename, 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    
+                    # Записываем данные
+                    for row in range(1, self.rows + 1):
+                        row_data = []
+                        for col in range(self.cols):
+                            cell_id = f"{self.get_col_letter(col)}{row}"
+                            row_data.append(self.data.get(cell_id, ""))
+                        writer.writerow(row_data)
+                
+                messagebox.showinfo("Успех", "Файл сохранен")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось сохранить файл: {str(e)}")
+    
+    def load_file(self):
+        """Загрузка таблицы из CSV"""
+        filename = tk.filedialog.askopenfilename(
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if filename:
+            try:
+                with open(filename, 'r', encoding='utf-8') as file:
+                    reader = csv.reader(file)
+                    
+                    # Очищаем текущие данные
+                    self.data.clear()
+                    self.formulas.clear()
+                    
+                    for row_idx, row_data in enumerate(reader, 1):
+                        if row_idx > self.rows:
+                            break
+                            
+                        for col_idx, value in enumerate(row_data):
+                            if col_idx >= self.cols:
+                                break
+                                
+                            cell_id = f"{self.get_col_letter(col_idx)}{row_idx}"
+                            self.data[cell_id] = value
+                            self.formulas[cell_id] = ""
+                            self.update_cell_display(str(row_idx), col_idx, value)
+                
+                messagebox.showinfo("Успех", "Файл загружен")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось загрузить файл: {str(e)}")
+
+root = tk.Tk()
+app = Spreadsheet(root)
+root.mainloop()

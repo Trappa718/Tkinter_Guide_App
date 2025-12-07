@@ -1,0 +1,296 @@
+import tkinter as tk
+import random
+import time
+
+class SortingVisualizer:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Визуализатор алгоритмов сортировки")
+        self.root.geometry("800x600")
+        
+        # Параметры визуализации
+        self.array = []
+        self.array_size = 50
+        self.min_val = 10
+        self.max_val = 400
+        self.sorting = False
+        self.comparisons = 0
+        self.swaps = 0
+        self.start_time = 0
+        
+        self.create_widgets()
+        self.generate_array()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Верхняя панель управления
+        control_frame = tk.Frame(self.root)
+        control_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Генерация массива
+        gen_frame = tk.Frame(control_frame)
+        gen_frame.pack(side=tk.LEFT)
+        
+        tk.Button(gen_frame, text="Сгенерировать", 
+                 command=self.generate_array).pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(gen_frame, text="Размер:").pack(side=tk.LEFT, padx=5)
+        self.size_var = tk.IntVar(value=self.array_size)
+        size_spin = tk.Spinbox(gen_frame, from_=10, to=200, textvariable=self.size_var,
+                              width=5, command=self.update_array_size)
+        size_spin.pack(side=tk.LEFT, padx=5)
+        
+        # Выбор алгоритма
+        algo_frame = tk.Frame(control_frame)
+        algo_frame.pack(side=tk.LEFT, padx=20)
+        
+        tk.Label(algo_frame, text="Алгоритм:").pack(side=tk.LEFT)
+        self.algo_var = tk.StringVar(value="bubble")
+        algorithms = [("Пузырьковая", "bubble"), 
+                     ("Быстрая", "quick"), 
+                     ("Выбором", "selection")]
+        
+        for text, value in algorithms:
+            rb = tk.Radiobutton(algo_frame, text=text, variable=self.algo_var,
+                               value=value)
+            rb.pack(side=tk.LEFT, padx=5)
+        
+        # Управление скоростью
+        speed_frame = tk.Frame(control_frame)
+        speed_frame.pack(side=tk.LEFT, padx=20)
+        
+        tk.Label(speed_frame, text="Скорость:").pack(side=tk.LEFT)
+        self.speed_var = tk.DoubleVar(value=0.1)
+        speed_scale = tk.Scale(speed_frame, from_=0.01, to=1.0, resolution=0.01,
+                              orient=tk.HORIZONTAL, variable=self.speed_var,
+                              length=100, showvalue=False)
+        speed_scale.pack(side=tk.LEFT, padx=5)
+        
+        # Кнопки управления
+        btn_frame = tk.Frame(control_frame)
+        btn_frame.pack(side=tk.RIGHT)
+        
+        self.start_btn = tk.Button(btn_frame, text="Сортировать", 
+                                  command=self.start_sorting)
+        self.start_btn.pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(btn_frame, text="Стоп", 
+                 command=self.stop_sorting).pack(side=tk.LEFT, padx=5)
+        
+        # Статистика
+        stats_frame = tk.Frame(self.root)
+        stats_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.comparisons_label = tk.Label(stats_frame, text="Сравнения: 0")
+        self.comparisons_label.pack(side=tk.LEFT, padx=10)
+        
+        self.swaps_label = tk.Label(stats_frame, text="Обмены: 0")
+        self.swaps_label.pack(side=tk.LEFT, padx=10)
+        
+        self.time_label = tk.Label(stats_frame, text="Время: 0.00с")
+        self.time_label.pack(side=tk.LEFT, padx=10)
+        
+        # Холст для визуализации
+        self.canvas = tk.Canvas(self.root, bg="white", height=400)
+        self.canvas.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    
+    def update_array_size(self):
+        """Обновление размера массива"""
+        self.array_size = self.size_var.get()
+        self.generate_array()
+    
+    def generate_array(self):
+        """Генерация случайного массива"""
+        if self.sorting:
+            return
+            
+        self.array = [random.randint(self.min_val, self.max_val) for _ in range(self.array_size)]
+        self.comparisons = 0
+        self.swaps = 0
+        self.update_stats()
+        self.draw_array()
+    
+    def draw_array(self, highlights=None):
+        """Отрисовка массива на холсте"""
+        self.canvas.delete("all")
+        
+        canvas_width = self.canvas.winfo_width()
+        canvas_height = self.canvas.winfo_height()
+        
+        if canvas_width <= 1:  # Холст еще не отрисован
+            return
+        
+        bar_width = canvas_width / len(self.array)
+        highlight_color = "red"
+        sorted_color = "green"
+        
+        for i, value in enumerate(self.array):
+            x0 = i * bar_width
+            y0 = canvas_height - (value / self.max_val) * (canvas_height - 20)
+            x1 = (i + 1) * bar_width
+            y1 = canvas_height
+            
+            color = "blue"
+            if highlights:
+                if i in highlights:
+                    color = highlight_color
+            elif i >= len(self.array) - self.array_size // 10:  # Последние 10% считаем отсортированными
+                color = sorted_color
+            
+            self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline="")
+    
+    def update_stats(self):
+        """Обновление статистики"""
+        self.comparisons_label.config(text=f"Сравнения: {self.comparisons}")
+        self.swaps_label.config(text=f"Обмены: {self.swaps}")
+        
+        if self.start_time:
+            elapsed = time.time() - self.start_time
+            self.time_label.config(text=f"Время: {elapsed:.2f}с")
+    
+    def start_sorting(self):
+        """Запуск сортировки"""
+        if self.sorting:
+            return
+            
+        self.sorting = True
+        self.start_btn.config(state=tk.DISABLED)
+        self.comparisons = 0
+        self.swaps = 0
+        self.start_time = time.time()
+        
+        algorithm = self.algo_var.get()
+        if algorithm == "bubble":
+            self.root.after(100, self.bubble_sort)
+        elif algorithm == "quick":
+            self.root.after(100, lambda: self.quick_sort(0, len(self.array)-1))
+        elif algorithm == "selection":
+            self.root.after(100, self.selection_sort)
+    
+    def stop_sorting(self):
+        """Остановка сортировки"""
+        self.sorting = False
+        self.start_btn.config(state=tk.NORMAL)
+    
+    def bubble_sort(self):
+        """Алгоритм пузырьковой сортировки"""
+        if not self.sorting:
+            return
+            
+        n = len(self.array)
+        swapped = False
+        
+        for i in range(n - 1):
+            if not self.sorting:
+                return
+                
+            self.comparisons += 1
+            
+            if self.array[i] > self.array[i + 1]:
+                self.array[i], self.array[i + 1] = self.array[i + 1], self.array[i]
+                self.swaps += 1
+                swapped = True
+                
+                # Визуализация
+                self.draw_array([i, i + 1])
+                self.update_stats()
+                self.root.update()
+                time.sleep(self.speed_var.get())
+        
+        if swapped:
+            self.root.after(10, self.bubble_sort)
+        else:
+            self.finish_sorting()
+    
+    def quick_sort(self, low, high):
+        """Алгоритм быстрой сортировки"""
+        if not self.sorting or low >= high:
+            if low >= high and self.sorting:
+                self.finish_sorting()
+            return
+        
+        # Разделение
+        pivot_index = self.partition(low, high)
+        
+        # Рекурсивная сортировка
+        if self.sorting:
+            self.root.after(10, lambda: self.quick_sort(low, pivot_index - 1))
+        if self.sorting:
+            self.root.after(10, lambda: self.quick_sort(pivot_index + 1, high))
+    
+    def partition(self, low, high):
+        """Вспомогательная функция для быстрой сортировки"""
+        pivot = self.array[high]
+        i = low - 1
+        
+        for j in range(low, high):
+            if not self.sorting:
+                return i + 1
+                
+            self.comparisons += 1
+            
+            if self.array[j] <= pivot:
+                i += 1
+                self.array[i], self.array[j] = self.array[j], self.array[i]
+                self.swaps += 1
+                
+                # Визуализация
+                self.draw_array([i, j, high])
+                self.update_stats()
+                self.root.update()
+                time.sleep(self.speed_var.get())
+        
+        self.array[i + 1], self.array[high] = self.array[high], self.array[i + 1]
+        self.swaps += 1
+        
+        return i + 1
+    
+    def selection_sort(self):
+        """Алгоритм сортировки выбором"""
+        if not self.sorting:
+            return
+            
+        n = len(self.array)
+        
+        for i in range(n):
+            if not self.sorting:
+                return
+                
+            min_idx = i
+            for j in range(i + 1, n):
+                if not self.sorting:
+                    return
+                    
+                self.comparisons += 1
+                
+                if self.array[j] < self.array[min_idx]:
+                    min_idx = j
+                
+                # Визуализация поиска минимума
+                self.draw_array([i, j, min_idx])
+                self.update_stats()
+                self.root.update()
+                time.sleep(self.speed_var.get() / 2)
+            
+            if min_idx != i:
+                self.array[i], self.array[min_idx] = self.array[min_idx], self.array[i]
+                self.swaps += 1
+                
+                # Визуализация обмена
+                self.draw_array([i, min_idx])
+                self.update_stats()
+                self.root.update()
+                time.sleep(self.speed_var.get())
+        
+        self.finish_sorting()
+    
+    def finish_sorting(self):
+        """Завершение сортировки"""
+        self.sorting = False
+        self.start_btn.config(state=tk.NORMAL)
+        self.draw_array()  # Финальная отрисовка
+        messagebox.showinfo("Готово", "Сортировка завершена!")
+
+root = tk.Tk()
+app = SortingVisualizer(root)
+root.mainloop()

@@ -1,0 +1,130 @@
+import tkinter as tk
+from tkinter import ttk
+
+class VotingSystem:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Система голосования")
+        self.root.geometry("500x500")
+        
+        # Данные голосования
+        self.candidates = {
+            "Кандидат А": 0,
+            "Кандидат Б": 0, 
+            "Кандидат В": 0
+        }
+        self.total_votes = 0
+        
+        self.create_widgets()
+        self.update_display()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Заголовок
+        title_label = tk.Label(self.root, text="Выберите кандидата", 
+                              font=("Arial", 16, "bold"))
+        title_label.pack(pady=20)
+        
+        # Переменная для радиокнопок
+        self.selected_candidate = tk.StringVar()
+        
+        # Фрейм для кандидатов
+        candidates_frame = tk.Frame(self.root)
+        candidates_frame.pack(pady=20)
+        
+        # Создаем радиокнопки для каждого кандидата
+        for i, candidate in enumerate(self.candidates.keys()):
+            rb = tk.Radiobutton(candidates_frame, text=candidate, 
+                               variable=self.selected_candidate, 
+                               value=candidate, font=("Arial", 12))
+            rb.pack(anchor=tk.W, pady=5)
+        
+        # Кнопка голосования
+        self.vote_button = tk.Button(self.root, text="Голосовать", 
+                                    command=self.cast_vote, font=("Arial", 12),
+                                    bg="lightblue")
+        self.vote_button.pack(pady=10)
+        
+        # Разделитель
+        ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=20, pady=20)
+        
+        # Статистика
+        stats_label = tk.Label(self.root, text="Результаты голосования:", 
+                              font=("Arial", 14, "bold"))
+        stats_label.pack(pady=10)
+        
+        # Фрейм для прогресс-баров
+        self.progress_frame = tk.Frame(self.root)
+        self.progress_frame.pack(pady=10, fill=tk.X, padx=20)
+        
+        # Метка общего количества голосов
+        self.total_label = tk.Label(self.root, text="", font=("Arial", 12))
+        self.total_label.pack(pady=10)
+        
+        # Кнопка сброса
+        reset_button = tk.Button(self.root, text="Сброс результатов", 
+                                command=self.reset_votes, font=("Arial", 12),
+                                bg="lightcoral")
+        reset_button.pack(pady=20)
+    
+    def cast_vote(self):
+        """Обработка голоса"""
+        candidate = self.selected_candidate.get()
+        
+        if candidate:
+            self.candidates[candidate] += 1
+            self.total_votes += 1
+            self.update_display()
+            self.selected_candidate.set("")  # Сбрасываем выбор
+        else:
+            # Можно добавить сообщение об ошибке
+            pass
+    
+    def update_display(self):
+        """Обновление отображения результатов"""
+        # Очищаем фрейм с прогресс-барами
+        for widget in self.progress_frame.winfo_children():
+            widget.destroy()
+        
+        # Создаем прогресс-бары для каждого кандидата
+        for candidate, votes in self.candidates.items():
+            # Фрейм для кандидата
+            candidate_frame = tk.Frame(self.progress_frame)
+            candidate_frame.pack(fill=tk.X, pady=5)
+            
+            # Метка имени кандидата
+            name_label = tk.Label(candidate_frame, text=candidate, 
+                                 font=("Arial", 10), width=15, anchor=tk.W)
+            name_label.pack(side=tk.LEFT)
+            
+            # Прогресс-бар
+            if self.total_votes > 0:
+                percentage = (votes / self.total_votes) * 100
+            else:
+                percentage = 0
+            
+            progress = ttk.Progressbar(candidate_frame, orient=tk.HORIZONTAL, 
+                                     length=200, mode='determinate')
+            progress['value'] = percentage
+            progress.pack(side=tk.LEFT, padx=10)
+            
+            # Метка с процентами и голосами
+            percent_label = tk.Label(candidate_frame, 
+                                   text=f"{votes} гол. ({percentage:.1f}%)", 
+                                   font=("Arial", 10))
+            percent_label.pack(side=tk.LEFT)
+        
+        # Обновляем общее количество голосов
+        self.total_label.config(text=f"Всего голосов: {self.total_votes}")
+    
+    def reset_votes(self):
+        """Сброс всех голосов"""
+        for candidate in self.candidates:
+            self.candidates[candidate] = 0
+        self.total_votes = 0
+        self.update_display()
+
+# Запуск системы голосования
+root = tk.Tk()
+voting_system = VotingSystem(root)
+root.mainloop()

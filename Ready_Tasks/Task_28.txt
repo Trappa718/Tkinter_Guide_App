@@ -1,0 +1,380 @@
+import tkinter as tk
+from tkinter import scrolledtext, messagebox
+import time
+import json
+from datetime import datetime
+import subprocess
+import threading
+
+class GUITestAutomation:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Автоматизация тестирования GUI")
+        self.root.geometry("900x700")
+        
+        self.test_cases = []
+        self.current_test = None
+        self.recording = False
+        self.playing = False
+        self.recorded_actions = []
+        
+        self.create_widgets()
+        self.load_test_cases()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Главный фрейм
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Верхняя панель управления
+        control_frame = tk.Frame(main_frame)
+        control_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Запись действий
+        record_frame = tk.Frame(control_frame)
+        record_frame.pack(side=tk.LEFT)
+        
+        self.record_btn = tk.Button(record_frame, text="Начать запись", 
+                                   command=self.toggle_recording, bg="lightcoral")
+        self.record_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.play_btn = tk.Button(record_frame, text="Воспроизвести", 
+                                 command=self.play_recording, state=tk.DISABLED)
+        self.play_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Управление тест-кейсами
+        test_frame = tk.Frame(control_frame)
+        test_frame.pack(side=tk.LEFT, padx=20)
+        
+        tk.Button(test_frame, text="Новый тест-кейс", 
+                 command=self.create_test_case).pack(side=tk.LEFT, padx=5)
+        tk.Button(test_frame, text="Сохранить тесты", 
+                 command=self.save_test_cases).pack(side=tk.LEFT, padx=5)
+        tk.Button(test_frame, text="Запустить все тесты", 
+                 command=self.run_all_tests).pack(side=tk.LEFT, padx=5)
+        
+        # Область содержимого
+        content_frame = tk.Frame(main_frame)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Левая панель - тест-кейсы
+        left_frame = tk.Frame(content_frame, width=300)
+        left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        left_frame.pack_propagate(False)
+        
+        tk.Label(left_frame, text="Тест-кейсы", font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        
+        self.test_cases_listbox = tk.Listbox(left_frame)
+        self.test_cases_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.test_cases_listbox.bind("<<ListboxSelect>>", self.on_test_case_select)
+        
+        # Кнопки управления тест-кейсами
+        test_btn_frame = tk.Frame(left_frame)
+        test_btn_frame.pack(fill=tk.X)
+        
+        tk.Button(test_btn_frame, text="Добавить шаг", 
+                 command=self.add_test_step).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Button(test_btn_frame, text="Удалить", 
+                 command=self.delete_test_case).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Правая панель - редактор тест-кейса
+        right_frame = tk.Frame(content_frame)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        # Название тест-кейса
+        name_frame = tk.Frame(right_frame)
+        name_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(name_frame, text="Название:").pack(side=tk.LEFT)
+        self.test_name_var = tk.StringVar()
+        name_entry = tk.Entry(name_frame, textvariable=self.test_name_var, width=40)
+        name_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Шаги тест-кейса
+        tk.Label(right_frame, text="Шаги тестирования", 
+                font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        
+        self.steps_text = scrolledtext.ScrolledText(right_frame, height=15)
+        self.steps_text.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Лог выполнения
+        log_frame = tk.Frame(right_frame)
+        log_frame.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(log_frame, text="Лог выполнения", 
+                font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=10, state=tk.DISABLED)
+        self.log_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Статус
+        self.status_var = tk.StringVar(value="Готов")
+        status_label = tk.Label(main_frame, textvariable=self.status_var, 
+                               font=("Arial", 10))
+        status_label.pack(anchor=tk.W)
+    
+    def load_test_cases(self):
+        """Загрузка тест-кейсов"""
+        try:
+            with open("test_cases.json", "r") as f:
+                self.test_cases = json.load(f)
+            self.refresh_test_cases_list()
+        except FileNotFoundError:
+            self.test_cases = []
+    
+    def save_test_cases(self):
+        """Сохранение тест-кейсов"""
+        try:
+            with open("test_cases.json", "w") as f:
+                json.dump(self.test_cases, f, indent=2)
+            self.log("Тест-кейсы сохранены")
+        except Exception as e:
+            self.log(f"Ошибка сохранения: {e}")
+    
+    def refresh_test_cases_list(self):
+        """Обновление списка тест-кейсов"""
+        self.test_cases_listbox.delete(0, tk.END)
+        for test in self.test_cases:
+            self.test_cases_listbox.insert(tk.END, test["name"])
+    
+    def on_test_case_select(self, event):
+        """Обработка выбора тест-кейса"""
+        selection = self.test_cases_listbox.curselection()
+        if selection:
+            index = selection[0]
+            self.current_test = self.test_cases[index]
+            self.test_name_var.set(self.current_test["name"])
+            self.steps_text.delete(1.0, tk.END)
+            self.steps_text.insert(1.0, self.current_test.get("steps", ""))
+    
+    def create_test_case(self):
+        """Создание нового тест-кейса"""
+        test_name = tk.simpledialog.askstring("Новый тест-кейс", "Введите название:")
+        if test_name:
+            new_test = {
+                "name": test_name,
+                "steps": "",
+                "created": datetime.now().isoformat()
+            }
+            self.test_cases.append(new_test)
+            self.refresh_test_cases_list()
+            self.log(f"Создан тест-кейс: {test_name}")
+    
+    def delete_test_case(self):
+        """Удаление тест-кейса"""
+        selection = self.test_cases_listbox.curselection()
+        if selection:
+            index = selection[0]
+            test_name = self.test_cases[index]["name"]
+            if messagebox.askyesno("Подтверждение", f"Удалить тест-кейс '{test_name}'?"):
+                self.test_cases.pop(index)
+                self.refresh_test_cases_list()
+                self.current_test = None
+                self.test_name_var.set("")
+                self.steps_text.delete(1.0, tk.END)
+                self.log(f"Удален тест-кейс: {test_name}")
+    
+    def add_test_step(self):
+        """Добавление шага в тест-кейс"""
+        if not self.current_test:
+            messagebox.showwarning("Внимание", "Выберите тест-кейс")
+            return
+        
+        step_text = tk.simpledialog.askstring("Добавить шаг", "Введите описание шага:")
+        if step_text:
+            current_steps = self.steps_text.get(1.0, tk.END).strip()
+            new_steps = current_steps + f"\n{len(current_steps.splitlines()) + 1}. {step_text}"
+            self.steps_text.delete(1.0, tk.END)
+            self.steps_text.insert(1.0, new_steps.strip())
+            
+            # Сохраняем в текущий тест-кейс
+            if self.current_test in self.test_cases:
+                index = self.test_cases.index(self.current_test)
+                self.test_cases[index]["steps"] = new_steps.strip()
+    
+    def toggle_recording(self):
+        """Включение/выключение записи"""
+        if not self.recording:
+            self.start_recording()
+        else:
+            self.stop_recording()
+    
+    def start_recording(self):
+        """Начало записи действий"""
+        self.recording = True
+        self.recorded_actions = []
+        self.record_btn.config(text="Остановить запись", bg="lightgreen")
+        self.play_btn.config(state=tk.DISABLED)
+        self.log("Начата запись действий...")
+        
+        # Привязываем глобальные события
+        self.root.bind("<Button-1>", self.record_click)
+        self.root.bind("<KeyPress>", self.record_keypress)
+    
+    def stop_recording(self):
+        """Остановка записи"""
+        self.recording = False
+        self.record_btn.config(text="Начать запись", bg="lightcoral")
+        self.play_btn.config(state=tk.NORMAL)
+        self.log(f"Запись остановлена. Записано действий: {len(self.recorded_actions)}")
+        
+        # Отвязываем события
+        self.root.unbind("<Button-1>")
+        self.root.unbind("<KeyPress>")
+    
+    def record_click(self, event):
+        """Запись клика мыши"""
+        if self.recording:
+            action = {
+                "type": "click",
+                "x": event.x_root,
+                "y": event.y_root,
+                "widget": str(event.widget),
+                "timestamp": time.time()
+            }
+            self.recorded_actions.append(action)
+            self.log(f"Записан клик: ({event.x_root}, {event.y_root})")
+    
+    def record_keypress(self, event):
+        """Запись нажатия клавиши"""
+        if self.recording:
+            action = {
+                "type": "keypress",
+                "key": event.keysym,
+                "char": event.char,
+                "timestamp": time.time()
+            }
+            self.recorded_actions.append(action)
+            self.log(f"Записан ввод: {event.keysym}")
+    
+    def play_recording(self):
+        """Воспроизведение записи"""
+        if not self.recorded_actions:
+            messagebox.showwarning("Внимание", "Нет записанных действий")
+            return
+        
+        self.playing = True
+        self.record_btn.config(state=tk.DISABLED)
+        self.play_btn.config(state=tk.DISABLED)
+        self.log("Начато воспроизведение...")
+        
+        # Запускаем в отдельном потоке
+        play_thread = threading.Thread(target=self._play_recording_thread)
+        play_thread.daemon = True
+        play_thread.start()
+    
+    def _play_recording_thread(self):
+        """Поток воспроизведения записи"""
+        try:
+            start_time = time.time()
+            
+            for i, action in enumerate(self.recorded_actions):
+                if not self.playing:
+                    break
+                
+                # Ждем нужное время
+                elapsed = time.time() - start_time
+                wait_time = action["timestamp"] - self.recorded_actions[0]["timestamp"] - elapsed
+                if wait_time > 0:
+                    time.sleep(wait_time)
+                
+                # Выполняем действие
+                self.execute_action(action)
+                
+                self.log(f"Выполнено действие {i+1}/{len(self.recorded_actions)}")
+            
+            self.playing = False
+            self.root.after(0, self._playback_finished)
+            
+        except Exception as e:
+            self.log(f"Ошибка воспроизведения: {e}")
+            self.playing = False
+            self.root.after(0, self._playback_finished)
+    
+    def execute_action(self, action):
+        """Выполнение одного действия"""
+        try:
+            if action["type"] == "click":
+                # Имитируем клик мыши
+                self.root.after(0, lambda: self.simulate_click(action["x"], action["y"]))
+            elif action["type"] == "keypress":
+                # Имитируем нажатие клавиши
+                self.root.after(0, lambda: self.simulate_keypress(action["key"]))
+                
+        except Exception as e:
+            self.log(f"Ошибка выполнения действия: {e}")
+    
+    def simulate_click(self, x, y):
+        """Имитация клика мыши"""
+        # В реальном приложении здесь бы использовались библиотеки для автоматизации
+        self.log(f"Имитация клика: ({x}, {y})")
+    
+    def simulate_keypress(self, key):
+        """Имитация нажатия клавиши"""
+        self.log(f"Имитация нажатия: {key}")
+    
+    def _playback_finished(self):
+        """Завершение воспроизведения"""
+        self.record_btn.config(state=tk.NORMAL)
+        self.play_btn.config(state=tk.NORMAL)
+        self.log("Воспроизведение завершено")
+    
+    def run_all_tests(self):
+        """Запуск всех тест-кейсов"""
+        if not self.test_cases:
+            messagebox.showwarning("Внимание", "Нет тест-кейсов для запуска")
+            return
+        
+        self.log("Запуск всех тест-кейсов...")
+        
+        # Запускаем в отдельном потоке
+        test_thread = threading.Thread(target=self._run_tests_thread)
+        test_thread.daemon = True
+        test_thread.start()
+    
+    def _run_tests_thread(self):
+        """Поток выполнения тестов"""
+        passed = 0
+        failed = 0
+        
+        for test in self.test_cases:
+            if not self.playing:  # Используем playing как флаг выполнения
+                break
+            
+            self.log(f"Выполнение теста: {test['name']}")
+            
+            try:
+                # Здесь бы выполнялись реальные шаги тестирования
+                time.sleep(1)  # Имитация выполнения
+                
+                # Простая проверка (в реальном приложении здесь были бы настоящие assertions)
+                if "error" not in test['name'].lower():
+                    self.log(f"✓ Тест '{test['name']}' пройден")
+                    passed += 1
+                else:
+                    self.log(f"✗ Тест '{test['name']}' не пройден")
+                    failed += 1
+                    
+            except Exception as e:
+                self.log(f"✗ Ошибка в тесте '{test['name']}': {e}")
+                failed += 1
+        
+        self.log(f"Результаты: Пройдено: {passed}, Не пройдено: {failed}")
+        self.playing = False
+    
+    def log(self, message):
+        """Добавление сообщения в лог"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}\n"
+        
+        self.log_text.config(state=tk.NORMAL)
+        self.log_text.insert(tk.END, formatted_message)
+        self.log_text.see(tk.END)
+        self.log_text.config(state=tk.DISABLED)
+        
+        self.status_var.set(message)
+
+root = tk.Tk()
+app = GUITestAutomation(root)
+root.mainloop()

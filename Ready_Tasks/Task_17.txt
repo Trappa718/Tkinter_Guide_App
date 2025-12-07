@@ -1,0 +1,333 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import json
+import os
+from datetime import datetime
+
+class NotesApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Система заметок с тегами")
+        self.root.geometry("900x600")
+        
+        self.notes_file = "notes_data.json"
+        self.notes = []
+        self.tags = set()
+        self.current_note_id = None
+        
+        self.load_data()
+        self.create_widgets()
+        self.refresh_notes_list()
+        self.refresh_tags_list()
+    
+    def create_widgets(self):
+        """Создание интерфейса"""
+        # Главный фрейм
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Левая панель - список заметок и теги
+        left_frame = tk.Frame(main_frame, width=300)
+        left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        left_frame.pack_propagate(False)
+        
+        # Поиск
+        search_frame = tk.Frame(left_frame)
+        search_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(search_frame, text="Поиск:", font=("Arial", 10)).pack(anchor=tk.W)
+        self.search_var = tk.StringVar()
+        search_entry = tk.Entry(search_frame, textvariable=self.search_var)
+        search_entry.pack(fill=tk.X, pady=2)
+        search_entry.bind("<KeyRelease>", self.search_notes)
+        
+        # Список заметок
+        notes_list_frame = tk.Frame(left_frame)
+        notes_list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        tk.Label(notes_list_frame, text="Заметки", font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        
+        self.notes_tree = ttk.Treeview(notes_list_frame, columns=("date"), show="tree", height=12)
+        self.notes_tree.heading("#0", text="Название")
+        self.notes_tree.column("#0", width=200)
+        self.notes_tree.pack(fill=tk.BOTH, expand=True)
+        self.notes_tree.bind("<<TreeviewSelect>>", self.on_note_select)
+        
+        # Кнопки управления заметками
+        notes_btn_frame = tk.Frame(left_frame)
+        notes_btn_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Button(notes_btn_frame, text="Новая", command=self.new_note).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Button(notes_btn_frame, text="Удалить", command=self.delete_note).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Теги
+        tags_frame = tk.Frame(left_frame)
+        tags_frame.pack(fill=tk.BOTH, pady=10)
+        
+        tk.Label(tags_frame, text="Теги", font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        
+        self.tags_listbox = tk.Listbox(tags_frame, height=6)
+        self.tags_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.tags_listbox.bind("<<ListboxSelect>>", self.filter_by_tag)
+        
+        # Управление тегами
+        tags_input_frame = tk.Frame(tags_frame)
+        tags_input_frame.pack(fill=tk.X)
+        
+        self.tag_var = tk.StringVar()
+        tag_entry = tk.Entry(tags_input_frame, textvariable=self.tag_var)
+        tag_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tag_entry.bind("<Return>", self.add_tag_to_note)
+        
+        tk.Button(tags_input_frame, text="+", command=self.add_tag_to_note, width=3).pack(side=tk.RIGHT)
+        
+        # Правая панель - редактор
+        right_frame = tk.Frame(main_frame)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        # Заголовок заметки
+        title_frame = tk.Frame(right_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(title_frame, text="Заголовок:", font=("Arial", 12)).pack(anchor=tk.W)
+        self.title_var = tk.StringVar()
+        title_entry = tk.Entry(title_frame, textvariable=self.title_var, font=("Arial", 14))
+        title_entry.pack(fill=tk.X, pady=2)
+        
+        # Текст заметки
+        tk.Label(right_frame, text="Текст:", font=("Arial", 12)).pack(anchor=tk.W)
+        self.content_text = tk.Text(right_frame, wrap=tk.WORD, font=("Arial", 11))
+        self.content_text.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Теги текущей заметки
+        tags_current_frame = tk.Frame(right_frame)
+        tags_current_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(tags_current_frame, text="Теги заметки:", font=("Arial", 10)).pack(anchor=tk.W)
+        self.current_tags_frame = tk.Frame(tags_current_frame)
+        self.current_tags_frame.pack(fill=tk.X, pady=2)
+        
+        # Кнопки сохранения
+        save_frame = tk.Frame(right_frame)
+        save_frame.pack(fill=tk.X, pady=10)
+        
+        tk.Button(save_frame, text="Сохранить", command=self.save_note, 
+                 font=("Arial", 12), bg="lightgreen").pack(side=tk.LEFT, padx=5)
+        tk.Button(save_frame, text="Автосохранение", command=self.toggle_auto_save,
+                 font=("Arial", 10)).pack(side=tk.RIGHT, padx=5)
+    
+    def load_data(self):
+        """Загрузка данных из файла"""
+        if os.path.exists(self.notes_file):
+            try:
+                with open(self.notes_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.notes = data.get('notes', [])
+                    self.tags = set(data.get('tags', []))
+            except:
+                self.notes = []
+                self.tags = set()
+    
+    def save_data(self):
+        """Сохранение данных в файл"""
+        data = {
+            'notes': self.notes,
+            'tags': list(self.tags),
+            'last_save': datetime.now().isoformat()
+        }
+        
+        try:
+            with open(self.notes_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить данные: {str(e)}")
+    
+    def refresh_notes_list(self):
+        """Обновление списка заметок"""
+        for item in self.notes_tree.get_children():
+            self.notes_tree.delete(item)
+        
+        for note in self.notes:
+            self.notes_tree.insert("", tk.END, iid=note['id'], 
+                                 text=note['title'], values=(note['date']))
+    
+    def refresh_tags_list(self):
+        """Обновление списка тегов"""
+        self.tags_listbox.delete(0, tk.END)
+        for tag in sorted(self.tags):
+            self.tags_listbox.insert(tk.END, tag)
+    
+    def refresh_current_tags(self):
+        """Обновление тегов текущей заметки"""
+        # Очищаем фрейм с тегами
+        for widget in self.current_tags_frame.winfo_children():
+            widget.destroy()
+        
+        if self.current_note_id:
+            note = self.get_note_by_id(self.current_note_id)
+            if note:
+                for tag in note.get('tags', []):
+                    tag_frame = tk.Frame(self.current_tags_frame)
+                    tag_frame.pack(side=tk.LEFT, padx=2)
+                    
+                    tk.Label(tag_frame, text=tag, bg="lightblue", 
+                            font=("Arial", 8)).pack(side=tk.LEFT)
+                    
+                    tk.Button(tag_frame, text="×", command=lambda t=tag: self.remove_tag(t),
+                             font=("Arial", 8), width=2).pack(side=tk.LEFT)
+    
+    def get_note_by_id(self, note_id):
+        """Получение заметки по ID"""
+        for note in self.notes:
+            if note['id'] == note_id:
+                return note
+        return None
+    
+    def new_note(self):
+        """Создание новой заметки"""
+        note_id = max([note['id'] for note in self.notes], default=0) + 1
+        new_note = {
+            'id': note_id,
+            'title': 'Новая заметка',
+            'content': '',
+            'tags': [],
+            'date': datetime.now().strftime("%Y-%m-%d %H:%M"),
+            'created': datetime.now().isoformat()
+        }
+        
+        self.notes.append(new_note)
+        self.current_note_id = note_id
+        
+        self.title_var.set(new_note['title'])
+        self.content_text.delete(1.0, tk.END)
+        self.refresh_current_tags()
+        self.refresh_notes_list()
+        self.save_data()
+    
+    def on_note_select(self, event):
+        """Обработка выбора заметки"""
+        selection = self.notes_tree.selection()
+        if selection:
+            self.current_note_id = int(selection[0])
+            note = self.get_note_by_id(self.current_note_id)
+            
+            if note:
+                self.title_var.set(note['title'])
+                self.content_text.delete(1.0, tk.END)
+                self.content_text.insert(1.0, note['content'])
+                self.refresh_current_tags()
+    
+    def save_note(self):
+        """Сохранение текущей заметки"""
+        if not self.current_note_id:
+            messagebox.showwarning("Внимание", "Выберите или создайте заметку")
+            return
+        
+        note = self.get_note_by_id(self.current_note_id)
+        if note:
+            note['title'] = self.title_var.get().strip()
+            note['content'] = self.content_text.get(1.0, tk.END).strip()
+            note['date'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            
+            self.refresh_notes_list()
+            self.save_data()
+            messagebox.showinfo("Успех", "Заметка сохранена")
+    
+    def toggle_auto_save(self):
+        """Включение/выключение автосохранения"""
+        # В реальном приложении здесь бы запускался таймер автосохранения
+        self.save_note()
+    
+    def delete_note(self):
+        """Удаление заметки"""
+        if not self.current_note_id:
+            return
+        
+        if messagebox.askyesno("Подтверждение", "Удалить выбранную заметку?"):
+            self.notes = [note for note in self.notes if note['id'] != self.current_note_id]
+            self.current_note_id = None
+            self.title_var.set("")
+            self.content_text.delete(1.0, tk.END)
+            self.refresh_current_tags()
+            self.refresh_notes_list()
+            self.save_data()
+    
+    def add_tag_to_note(self, event=None):
+        """Добавление тега к текущей заметке"""
+        if not self.current_note_id:
+            messagebox.showwarning("Внимание", "Выберите заметку для добавления тега")
+            return
+        
+        tag = self.tag_var.get().strip()
+        if not tag:
+            return
+        
+        note = self.get_note_by_id(self.current_note_id)
+        if note:
+            if tag not in note['tags']:
+                note['tags'].append(tag)
+                self.tags.add(tag)
+                self.tag_var.set("")
+                self.refresh_current_tags()
+                self.refresh_tags_list()
+                self.save_data()
+    
+    def remove_tag(self, tag):
+        """Удаление тега из текущей заметки"""
+        if self.current_note_id:
+            note = self.get_note_by_id(self.current_note_id)
+            if note and tag in note['tags']:
+                note['tags'].remove(tag)
+                self.refresh_current_tags()
+                self.save_data()
+    
+    def filter_by_tag(self, event):
+        """Фильтрация заметок по тегу"""
+        selection = self.tags_listbox.curselection()
+        if selection:
+            selected_tag = self.tags_listbox.get(selection[0])
+            
+            # Очищаем список
+            for item in self.notes_tree.get_children():
+                self.notes_tree.delete(item)
+            
+            # Показываем только заметки с выбранным тегом
+            for note in self.notes:
+                if selected_tag in note.get('tags', []):
+                    self.notes_tree.insert("", tk.END, iid=note['id'], 
+                                         text=note['title'], values=(note['date']))
+        else:
+            self.refresh_notes_list()
+    
+    def search_notes(self, event):
+        """Поиск заметок"""
+        query = self.search_var.get().lower()
+        
+        if not query:
+            self.refresh_notes_list()
+            return
+        
+        # Очищаем список
+        for item in self.notes_tree.get_children():
+            self.notes_tree.delete(item)
+        
+        # Ищем совпадения в заголовке и содержимом
+        for note in self.notes:
+            if (query in note['title'].lower() or 
+                query in note['content'].lower() or
+                any(query in tag.lower() for tag in note.get('tags', []))):
+                
+                self.notes_tree.insert("", tk.END, iid=note['id'], 
+                                     text=note['title'], values=(note['date']))
+
+# Автосохранение каждые 30 секунд
+def auto_save():
+    if hasattr(root, 'notes_app'):
+        root.notes_app.save_data()
+    root.after(30000, auto_save)
+
+root = tk.Tk()
+app = NotesApp(root)
+root.notes_app = app
+root.after(30000, auto_save)  # Запускаем автосохранение
+root.mainloop()

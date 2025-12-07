@@ -1,0 +1,271 @@
+import tkinter as tk
+import random
+
+class Arkanoid:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Арканоид")
+        self.root.geometry("600x700")
+        self.root.resizable(False, False)
+        
+        # Игровые переменные
+        self.game_width = 600
+        self.game_height = 600
+        self.paddle_width = 100
+        self.paddle_height = 15
+        self.ball_radius = 10
+        self.ball_speed = 5
+        self.brick_rows = 5
+        self.brick_cols = 10
+        self.brick_width = 50
+        self.brick_height = 20
+        self.brick_gap = 5
+        
+        self.score = 0
+        self.lives = 3
+        self.game_running = False
+        self.bricks = []
+        
+        self.create_widgets()
+        self.init_game()
+        self.setup_bindings()
+    
+    def create_widgets(self):
+        """Создание игрового интерфейса"""
+        # Статистика
+        self.stats_frame = tk.Frame(self.root)
+        self.stats_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.score_label = tk.Label(self.stats_frame, text=f"Счет: {self.score}", 
+                                   font=("Arial", 14))
+        self.score_label.pack(side=tk.LEFT)
+        
+        self.lives_label = tk.Label(self.stats_frame, text=f"Жизни: {self.lives}", 
+                                   font=("Arial", 14))
+        self.lives_label.pack(side=tk.RIGHT)
+        
+        # Игровое поле
+        self.canvas = tk.Canvas(self.root, width=self.game_width, height=self.game_height, 
+                               bg="black", highlightthickness=0)
+        self.canvas.pack(pady=10)
+        
+        # Панель управления
+        control_frame = tk.Frame(self.root)
+        control_frame.pack(pady=10)
+        
+        self.start_button = tk.Button(control_frame, text="Старт", 
+                                     command=self.start_game, font=("Arial", 12))
+        self.start_button.pack(side=tk.LEFT, padx=5)
+        
+        self.pause_button = tk.Button(control_frame, text="Пауза", 
+                                     command=self.pause_game, font=("Arial", 12))
+        self.pause_button.pack(side=tk.LEFT, padx=5)
+        
+        self.restart_button = tk.Button(control_frame, text="Рестарт", 
+                                       command=self.restart_game, font=("Arial", 12))
+        self.restart_button.pack(side=tk.LEFT, padx=5)
+    
+    def init_game(self):
+        """Инициализация игровых объектов"""
+        # Платформа
+        self.paddle_x = self.game_width // 2 - self.paddle_width // 2
+        self.paddle_y = self.game_height - 30
+        self.paddle = self.canvas.create_rectangle(
+            self.paddle_x, self.paddle_y,
+            self.paddle_x + self.paddle_width, self.paddle_y + self.paddle_height,
+            fill="white", outline=""
+        )
+        
+        # Мяч
+        self.ball_x = self.game_width // 2
+        self.ball_y = self.game_height // 2
+        self.ball_dx = random.choice([-1, 1]) * self.ball_speed
+        self.ball_dy = -self.ball_speed
+        
+        self.ball = self.canvas.create_oval(
+            self.ball_x - self.ball_radius, self.ball_y - self.ball_radius,
+            self.ball_x + self.ball_radius, self.ball_y + self.ball_radius,
+            fill="red", outline=""
+        )
+        
+        # Создание блоков
+        self.create_bricks()
+    
+    def create_bricks(self):
+        """Создание блоков"""
+        colors = ["#FF4444", "#FF8844", "#FFFF44", "#44FF44", "#4444FF"]
+        
+        for row in range(self.brick_rows):
+            for col in range(self.brick_cols):
+                x = col * (self.brick_width + self.brick_gap) + self.brick_gap
+                y = row * (self.brick_height + self.brick_gap) + self.brick_gap + 50
+                
+                brick = self.canvas.create_rectangle(
+                    x, y, x + self.brick_width, y + self.brick_height,
+                    fill=colors[row], outline=""
+                )
+                self.bricks.append(brick)
+    
+    def setup_bindings(self):
+        """Настройка привязок клавиш"""
+        self.root.bind("<Left>", self.move_left)
+        self.root.bind("<Right>", self.move_right)
+        self.root.bind("<KeyPress>", self.key_press)
+        self.canvas.focus_set()
+    
+    def move_left(self, event):
+        """Движение платформы влево"""
+        if self.paddle_x > 0 and self.game_running:
+            self.paddle_x -= 20
+            self.canvas.coords(self.paddle, 
+                             self.paddle_x, self.paddle_y,
+                             self.paddle_x + self.paddle_width, self.paddle_y + self.paddle_height)
+    
+    def move_right(self, event):
+        """Движение платформы вправо"""
+        if self.paddle_x < self.game_width - self.paddle_width and self.game_running:
+            self.paddle_x += 20
+            self.canvas.coords(self.paddle, 
+                             self.paddle_x, self.paddle_y,
+                             self.paddle_x + self.paddle_width, self.paddle_y + self.paddle_height)
+    
+    def key_press(self, event):
+        """Обработка нажатий клавиш"""
+        if event.keysym == "Left":
+            self.move_left(event)
+        elif event.keysym == "Right":
+            self.move_right(event)
+        elif event.keysym == "space" and not self.game_running:
+            self.start_game()
+    
+    def start_game(self):
+        """Запуск игры"""
+        if not self.game_running:
+            self.game_running = True
+            self.game_loop()
+    
+    def pause_game(self):
+        """Пауза игры"""
+        self.game_running = not self.game_running
+        if self.game_running:
+            self.game_loop()
+    
+    def restart_game(self):
+        """Перезапуск игры"""
+        self.game_running = False
+        self.canvas.delete("all")
+        self.score = 0
+        self.lives = 3
+        self.update_stats()
+        self.init_game()
+    
+    def game_loop(self):
+        """Основной игровой цикл"""
+        if not self.game_running:
+            return
+        
+        self.move_ball()
+        self.check_collisions()
+        
+        if self.game_running:
+            self.root.after(30, self.game_loop)
+    
+    def move_ball(self):
+        """Движение мяча"""
+        self.ball_x += self.ball_dx
+        self.ball_y += self.ball_dy
+        
+        # Отскок от стен
+        if self.ball_x <= self.ball_radius or self.ball_x >= self.game_width - self.ball_radius:
+            self.ball_dx = -self.ball_dx
+        
+        # Отскок от потолка
+        if self.ball_y <= self.ball_radius:
+            self.ball_dy = -self.ball_dy
+        
+        # Проверка падения мяча
+        if self.ball_y >= self.game_height:
+            self.lose_life()
+            return
+        
+        self.canvas.coords(self.ball,
+                          self.ball_x - self.ball_radius, self.ball_y - self.ball_radius,
+                          self.ball_x + self.ball_radius, self.ball_y + self.ball_radius)
+    
+    def check_collisions(self):
+        """Проверка столкновений"""
+        # Столкновение с платформой
+        ball_bbox = self.canvas.bbox(self.ball)
+        paddle_bbox = self.canvas.bbox(self.paddle)
+        
+        if (ball_bbox[2] >= paddle_bbox[0] and ball_bbox[0] <= paddle_bbox[2] and
+            ball_bbox[3] >= paddle_bbox[1] and ball_bbox[1] <= paddle_bbox[3]):
+            
+            # Вычисление точки удара для изменения угла отскока
+            hit_pos = (self.ball_x - self.paddle_x) / self.paddle_width
+            self.ball_dx = (hit_pos - 0.5) * 8  # Угол зависит от места удара
+            self.ball_dy = -abs(self.ball_dy)  # Всегда вверх
+        
+        # Столкновение с блоками
+        for brick in self.bricks[:]:
+            brick_bbox = self.canvas.bbox(brick)
+            
+            if (ball_bbox[2] >= brick_bbox[0] and ball_bbox[0] <= brick_bbox[2] and
+                ball_bbox[3] >= brick_bbox[1] and ball_bbox[1] <= brick_bbox[3]):
+                
+                # Удаляем блок
+                self.canvas.delete(brick)
+                self.bricks.remove(brick)
+                self.score += 10
+                self.update_stats()
+                
+                # Определяем сторону столкновения
+                if (ball_bbox[2] >= brick_bbox[0] and ball_bbox[0] <= brick_bbox[0] or
+                    ball_bbox[2] >= brick_bbox[2] and ball_bbox[0] <= brick_bbox[2]):
+                    self.ball_dx = -self.ball_dx
+                else:
+                    self.ball_dy = -self.ball_dy
+                
+                break
+        
+        # Проверка победы
+        if len(self.bricks) == 0:
+            self.win_game()
+    
+    def lose_life(self):
+        """Потеря жизни"""
+        self.lives -= 1
+        self.update_stats()
+        
+        if self.lives <= 0:
+            self.game_over()
+        else:
+            # Перезапуск мяча
+            self.ball_x = self.game_width // 2
+            self.ball_y = self.game_height // 2
+            self.ball_dx = random.choice([-1, 1]) * self.ball_speed
+            self.ball_dy = -self.ball_speed
+            self.canvas.coords(self.ball,
+                              self.ball_x - self.ball_radius, self.ball_y - self.ball_radius,
+                              self.ball_x + self.ball_radius, self.ball_y + self.ball_radius)
+    
+    def game_over(self):
+        """Конец игры"""
+        self.game_running = False
+        self.canvas.create_text(self.game_width // 2, self.game_height // 2,
+                               text="ИГРА ОКОНЧЕНА", fill="white", font=("Arial", 24))
+    
+    def win_game(self):
+        """Победа"""
+        self.game_running = False
+        self.canvas.create_text(self.game_width // 2, self.game_height // 2,
+                               text="ПОБЕДА!", fill="yellow", font=("Arial", 24))
+    
+    def update_stats(self):
+        """Обновление статистики"""
+        self.score_label.config(text=f"Счет: {self.score}")
+        self.lives_label.config(text=f"Жизни: {self.lives}")
+
+root = tk.Tk()
+game = Arkanoid(root)
+root.mainloop()
