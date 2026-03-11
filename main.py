@@ -13554,26 +13554,7 @@ class TkinterGuideApp:
                 
                 ft.Container(
                     content=ft.Column([
-                        # 20 функций Tkinter
-                        self.create_function_card(
-                            "1. Функция выхода из приложения",
-                            "Безопасное закрытие приложения с подтверждением",
-                            '''def quit_app():\n    if messagebox.askokcancel("Выход", "Вы уверены, что хотите выйти?"):\n        root.destroy()\n        # или root.quit() для закрытия всего приложения'''
-                        ),
-                        
-                        self.create_function_card(
-                            "2. Добавление задачи в Listbox",
-                            "Добавление новой задачи с валидацией пустого ввода",
-                            '''def add_task():\n    task = entry.get().strip()\n    if task == "":\n        messagebox.showwarning("Ошибка", "Поле не может быть пустым")\n        return\n    tasks.append(task)\n    listbox.insert(tk.END, task)\n    entry.delete(0, tk.END)'''
-                        ),
-                        
-                        self.create_function_card(
-                            "3. Удаление выбранной задачи",
-                            "Удаление задачи с обработкой ошибок выбора",
-                            '''def delete_task():\n    try:\n        selected_index = listbox.curselection()[0]\n        listbox.delete(selected_index)\n        tasks.pop(selected_index)\n    except IndexError:\n        messagebox.showwarning("Ошибка", "Выберите задачу для удаления")'''
-                        ),
-                        
-                                            self.create_function_card(
+                    self.create_function_card(
                         "1. Функция выхода из приложения",
                         "Безопасное закрытие приложения с подтверждением",
                         '''def quit_app():\n    if messagebox.askokcancel("Выход", "Вы уверены, что хотите выйти?"):\n        root.destroy()\n        # или root.quit() для закрытия всего приложения'''
